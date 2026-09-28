@@ -24,6 +24,7 @@ class User(Base):
     display_name: Mapped[str] = mapped_column(String(64))
     password_hash: Mapped[str] = mapped_column(Text)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    deleted_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=True)
     session_epoch: Mapped[int] = mapped_column(Integer, default=0)

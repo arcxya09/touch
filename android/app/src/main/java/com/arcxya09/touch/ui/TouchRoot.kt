@@ -182,11 +182,11 @@ import java.util.Locale
             Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) { Text(person.name); Text("@${person.username}", style = MaterialTheme.typography.bodySmall) }
-                    TextButton(onClick = vm::request, enabled = !vm.busy) { Text("发送申请") }
+                    TextButton(onClick = vm::request, enabled = !vm.busy) { Text(if (vm.user?.isAdmin == true) "直接添加" else "发送申请") }
                 }
             }
         }
-        if (vm.contacts.isEmpty()) Empty("还没有联系人", "只支持精确账号查找，申请需经对方同意。")
+        if (vm.contacts.isEmpty()) Empty("还没有联系人", if (vm.user?.isAdmin == true) "按完整账号查找，管理员可直接添加好友。" else "只支持精确账号查找，申请需经对方同意。")
         LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             items(vm.contacts, key = { it.id }) { contact ->
                 Card(Modifier.fillMaxWidth()) {

@@ -12,8 +12,9 @@ def pair(a: str, b: str) -> str:
 
 
 def user_json(user: User):
-    return {"id": user.id, "username": user.username, "display_name": user.display_name,
-            "must_change_password": user.must_change_password}
+    return {"id": user.id, "username": "deleted" if user.deleted_at else user.username,
+            "display_name": user.display_name,
+            "must_change_password": user.must_change_password, "is_admin": user.is_admin}
 
 
 def attachment_json(item: Attachment):

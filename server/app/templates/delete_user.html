@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card login">
+  <p class="muted small">TOUCH / ADMIN</p>
+  <h1>删除账号</h1>
+  <p>即将删除 <strong>{{user.username}}</strong>（{{user.display_name}}）。此操作无法撤销。</p>
+  <ul>
+    <li>立即撤销登录，移除账号及联系人关系，原账号名可重新创建。</li>
+    <li>对方已收到的聊天记录和附件保留，发送者显示为“已删除账号”。</li>
+    <li>未被聊天记录引用的附件由后台清理；历史备份最多保留 7 天。</li>
+  </ul>
+  <p class="muted small">如需暂时禁止登录，请返回列表使用“停用”。重新创建同名账号不会恢复原账号的数据。</p>
+  {% if error %}<p role="alert" class="danger-text">{{error}}</p>{% endif %}
+  <form method="post" action="/admin/users/{{user.id}}/delete">
+    <input type="hidden" name="csrf" value="{{csrf}}">
+    <label>输入完整账号名确认<input name="confirmation" required maxlength="32" autocomplete="off" spellcheck="false"></label>
+    <div class="row"><button class="danger">确认删除账号</button><a class="button secondary" href="/admin">取消</a></div>
+  </form>
+</div>
+{% endblock %}

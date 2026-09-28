@@ -76,6 +76,11 @@ class Repository(private val context: Context, val db: TouchDatabase, secure: Se
     }
     suspend fun sync() = syncLock.withLock { withContext(Dispatchers.IO) {
         if (api.user == null || api.user?.mustChange == true) return@withContext
+        // Populate the role when upgrading an existing 1.0.0 session.
+        if (api.session?.optJSONObject("user")?.has("is_admin") == false) {
+            val currentUser = api.json("/api/v1/auth/me")
+            api.session?.let { api.save(JSONObject(it.toString()).put("user", currentUser)) }
+        }
         do {
             val cursor = cache.get("meta", "cursor")?.json?.toLongOrNull() ?: 0L
             val result = api.json("/api/v1/sync?cursor=$cursor")

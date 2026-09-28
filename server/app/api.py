@@ -96,8 +96,9 @@ def refresh(body: Refresh, db: Session = Depends(get_db)):
     if not old:
         raise HTTPException(401, "登录已失效")
     user = db.scalar(select(User).where(User.id == old.user_id).with_for_update())
-    db.refresh(old)
-    if (old.refresh_hash != digest(body.refresh_token) or old.refresh_expires <= now()
+    old = db.scalar(select(MobileSession).where(MobileSession.id == old.id)
+                    .execution_options(populate_existing=True))
+    if (not old or not user or old.refresh_hash != digest(body.refresh_token) or old.refresh_expires <= now()
             or not user.active or old.epoch != user.session_epoch):
         raise HTTPException(401, "登录已失效")
     result = rotate_session(user, old)
@@ -143,7 +144,7 @@ def search(username: str = Query(min_length=1, max_length=32), user: User = Depe
            db: Session = Depends(get_db)):
     limiter.check("search:" + user.id, 15, 60)
     result = db.scalar(select(User).where(User.username == username.strip().lower(), User.active.is_(True),
-                                         User.is_admin.is_(False), User.id != user.id))
+                                         User.id != user.id))
     if not result:
         raise HTTPException(404, "未找到该账号")
     return user_json(result)
@@ -167,29 +168,40 @@ def contacts(user: User = Depends(ready_user), db: Session = Depends(get_db)):
 def request_contact(body: ContactRequest, user: User = Depends(ready_user), db: Session = Depends(get_db)):
     limiter.check("requests:" + user.id, 10, 60)
     peer = db.get(User, str(body.user_id))
-    if not peer or not peer.active or peer.is_admin or peer.id == user.id:
+    if not peer or not peer.active or peer.id == user.id:
         raise HTTPException(404, "账号不存在")
     # Lock both users before updating contact state; also serializes reciprocal requests.
-    db.scalars(select(User).where(User.id.in_([user.id, peer.id])).order_by(User.id).with_for_update()).all()
+    db.scalars(select(User).where(User.id.in_([user.id, peer.id])).order_by(User.id).with_for_update()
+               .execution_options(populate_existing=True)).all()
+    if not user.active:
+        raise HTTPException(401, "登录已失效")
+    if not peer.active:
+        raise HTTPException(404, "账号不存在")
     key = pair(user.id, peer.id)
     contact = db.get(Contact, key)
-    if contact and contact.state in ("pending", "accepted"):
+    if contact and (contact.state == "accepted" or (contact.state == "pending" and not user.is_admin)):
         return {"ok": True, "state": contact.state}
     if not contact:
         a, b = sorted([user.id, peer.id])
         contact = Contact(pair_key=key, a=a, b=b, requester=user.id)
         db.add(contact)
-    contact.state, contact.requester, contact.updated_at = "pending", user.id, now()
+    contact.state = "accepted" if user.is_admin else "pending"
+    contact.requester, contact.updated_at = user.id, now()
+    if contact.state == "accepted" and not db.scalar(select(Conversation).where(Conversation.pair_key == key)):
+        db.add(Conversation(pair_key=key, a=contact.a, b=contact.b))
     emit(db, [user.id, peer.id], "contacts_changed", {})
     db.commit()
-    return {"ok": True, "state": "pending"}
+    return {"ok": True, "state": contact.state}
 
 
 @router.post("/contacts/{peer_id}")
 def change_contact(peer_id: UUID, body: ContactAction, user: User = Depends(ready_user),
                    db: Session = Depends(get_db)):
     key = pair(user.id, str(peer_id))
-    db.scalars(select(User).where(User.id.in_([user.id, str(peer_id)])).order_by(User.id).with_for_update()).all()
+    db.scalars(select(User).where(User.id.in_([user.id, str(peer_id)])).order_by(User.id).with_for_update()
+               .execution_options(populate_existing=True)).all()
+    if not user.active:
+        raise HTTPException(401, "登录已失效")
     contact = db.get(Contact, key)
     if not contact:
         raise HTTPException(404, "联系人不存在")
@@ -233,7 +245,9 @@ def send(conversation_id: UUID, body: SendMessage, user: User = Depends(ready_us
     # User locks precede conversation locks in every write to avoid deadlocks.
     conversation = conversation_for(db, str(conversation_id), user.id)
     db.scalars(select(User).where(User.id.in_([conversation.a, conversation.b]))
-               .order_by(User.id).with_for_update()).all()
+               .order_by(User.id).with_for_update().execution_options(populate_existing=True)).all()
+    if not user.active:
+        raise HTTPException(401, "登录已失效")
     conversation = conversation_for(db, conversation.id, user.id, lock=True)
     previous = db.scalar(select(Message).where(Message.sender_id == user.id, Message.client_id == str(body.client_id)))
     if previous:
@@ -348,6 +362,10 @@ def upload(kind: Literal["image", "file"] = Query(), file: UploadFile = File(),
         name = re.sub(r"[\x00-\x1f\x7f]", "", name)[:200] or "文件"
         item = Attachment(id=attachment_id, owner_id=user.id, name=name, mime=mime[:160], kind=kind,
                           size=size, sha256=checksum.hexdigest())
+        db.scalar(select(User).where(User.id == user.id).with_for_update()
+                  .execution_options(populate_existing=True))
+        if not user.active:
+            raise HTTPException(401, "登录已失效")
         db.add(item)
         db.commit()
         return attachment_json(item)

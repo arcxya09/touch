@@ -2,8 +2,8 @@ package com.arcxya09.touch.data
 
 import org.json.JSONObject
 
-data class Person(val id: String, val username: String, val name: String, val mustChange: Boolean = false) {
-    companion object { fun parse(j: JSONObject) = Person(j.getString("id"), j.getString("username"), j.getString("display_name"), j.optBoolean("must_change_password")) }
+data class Person(val id: String, val username: String, val name: String, val mustChange: Boolean = false, val isAdmin: Boolean = false) {
+    companion object { fun parse(j: JSONObject) = Person(j.getString("id"), j.getString("username"), j.getString("display_name"), j.optBoolean("must_change_password"), j.optBoolean("is_admin")) }
 }
 data class FileItem(val id: String, val name: String, val mime: String, val kind: String, val size: Long, val sha256: String) {
     companion object { fun parse(j: JSONObject) = FileItem(j.getString("id"), j.getString("name"), j.getString("mime"), j.getString("kind"), j.getLong("size"), j.getString("sha256")) }

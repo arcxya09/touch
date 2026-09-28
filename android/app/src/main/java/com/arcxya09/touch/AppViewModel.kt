@@ -158,6 +158,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
     private suspend fun reloadLocal() {
+        user = repository.api.user
         conversations = repository.conversations(); contacts = repository.contacts()
         conversationId?.let { messages = repository.messages(it) }
         if (foreground && mayShowChat && screen == "chat" && conversationId != null) {
