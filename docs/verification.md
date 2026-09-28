@@ -35,6 +35,11 @@
 
 ## 发布后核验
 
+- [v1.0.2](https://github.com/arcxya09/touch/releases/tag/v1.0.2) 已成为 Latest，版本 `1.0.2 / 3`、最低 API 29，包含 arm64-v8a、armeabi-v7a、x86、x86_64；16 KiB 原生库对齐检查通过。
+- v1.0.2 APK 为 10,856,109 字节，SHA-256 为 `59b27db9fb4a0b9e12109f266ab95a48bfa1e9a17b1602dc6df4bfaa15ec2835`。签名与原证书一致。匿名 Latest 清单及固定标签 APK 下载成功，并与清单逐字节校验大小/哈希一致。
+- GitHub 实际下载包在隔离模拟器上从旧明文测试包覆盖安装、加密迁移、原图案解锁、保留时长切换及重启保留、文字/图片/两页 PDF 预览均通过。测试中遇到的同步点击时序及模拟器 System UI 无响应弹窗已排除后复测；未修改发布 APK。
+- [发布作业](https://github.com/arcxya09/touch/actions/runs/36381805038) 的测试、签名、附件核验、发布和签名材料清理步骤全部成功。附加 UI 检查期间发出的取消请求晚于发布步骤，导致运行总状态显示 cancelled；已独立核对公开的全部附件，未覆盖或替换已发布文件。
+
 - 首版 [v1.0.0](https://github.com/arcxya09/touch/releases/tag/v1.0.0) 发布时核验：固定 3 份附件齐全，APK 为 `com.arcxya09.touch`、版本 `1.0.0 / 1`、最低 API 29。当前 Latest 以 GitHub 最新正式 Release 为准。
 - APK 大小 2,891,228 字节；SHA-256：`2b35e34ae9823a57ee4c18b884a78afe04b0848efba6e16f569e71994b13bc6d`。
 - 未携带 GitHub 凭据，匿名请求 Latest 清单与固定标签 APK 均返回 HTTP 200；下载文件与构建附件逐字节一致，大小和 SHA-256 均匹配。
