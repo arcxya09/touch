@@ -66,4 +66,7 @@
 - 使用已发布的 1.0.2 APK 升级到本机正式签名 1.0.3 APK 的完整链路通过：升级前后凭证文件哈希一致、图案及加密历史保留、计时继续；首次启动先锁定，定时销毁默认关闭，重新开启默认 1 小时并可设置 24 小时。计时器按单调时钟重排提醒，验证允许 1 秒内的时钟转换误差。
 - 最终源码 CI 通过：[36386520706](https://github.com/arcxya09/touch/actions/runs/36386520706)。本机正式版 7 项单元测试、lintRelease 和 R8 签名构建通过。
 - 测试环境曾受旧 DNS 缓存和模拟器 System UI 启动弹窗影响；核对 Cloudflare 当前 DNS-only 记录后，仅调整隔离模拟器的 DNS，未修改域名或全站 SSL 设置，完整升级链路复测通过。
-- 发布后的公开下载包与更新清单另行核验。
+- [v1.0.3](https://github.com/arcxya09/touch/releases/tag/v1.0.3) 已发布为 Latest；[Release 作业](https://github.com/arcxya09/touch/actions/runs/36387418163) 与[标签源码 CI](https://github.com/arcxya09/touch/actions/runs/36387405723) 全部成功。
+- 公开 APK 为 10,888,881 字节，SHA-256 `afeb31983a3db08ac41a8564a3e1eca71e02bd040622d1b0022de6f66233a929`；原长期签名证书一致，16 KiB 对齐通过。匿名 Latest 清单与固定标签 APK 下载后大小/哈希一致。
+- GitHub 实际公开 APK 在隔离模拟器覆盖安装后，隐私首屏、原图案解锁、24 小时自定义保留设置、UTF-8 文本、图片与两页 PDF 预览均通过。
+- README 仅介绍番茄钟；已有三个 Release 的说明已简化，新版本公开说明和 update.json 更新提示均使用 RELEASE_NOTES.md 的简短文案。
