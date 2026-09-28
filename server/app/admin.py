@@ -27,9 +27,10 @@ def admin_session(request: Request, db: Session = Depends(get_db)):
     return session, user
 
 
-def check_csrf(request: Request, given: str, expected: str):
+def check_csrf(request: Request, given: str, expected: str | None):
     origin = request.headers.get("origin")
-    if not secrets.compare_digest(given, expected) or (origin and origin.rstrip("/") != settings.public_base_url):
+    if (not expected or not secrets.compare_digest(given.encode(), expected.encode())
+            or (origin and origin.rstrip("/") != settings.public_base_url)):
         raise HTTPException(403, "页面已过期，请刷新后重试")
 
 
@@ -45,7 +46,7 @@ def login_page(request: Request):
 @router.post("/login")
 def admin_login(request: Request, username: str = Form(max_length=32), password: str = Form(max_length=128),
                 csrf: str = Form(), db: Session = Depends(get_db)):
-    check_csrf(request, csrf, request.cookies.get("touch_login_csrf", "missing"))
+    check_csrf(request, csrf, request.cookies.get("touch_login_csrf"))
     limiter.check("admin-login:" + request.client.host, 5, 300)
     user = db.scalar(select(User).where(User.username == username.strip().lower()))
     valid = verify_password(user.password_hash if user else dummy_hash, password)

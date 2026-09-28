@@ -55,6 +55,9 @@ async def response_headers(request, call_next):
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["Cache-Control"] = "no-store"
     if request.url.path.startswith("/admin"):
+        # HTML form POSTs under no-referrer send Origin: null, failing CSRF checks.
+        # Preserve same-origin form submissions without leaking referrers to other sites.
+        response.headers["Referrer-Policy"] = "same-origin"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'")
     return response
