@@ -102,3 +102,6 @@
 - 实际撤销 POST_NOTIFICATIONS 并在系统弹窗拒绝后，通知开关保持关闭，不启动前台服务。
 - 使用真实系统前台服务 `specialUse`，不使用无障碍或伪装媒体等服务类型。网络失败退避，开机/包升级仅尝试恢复已选择开启且未暂停的提醒。
 - 本轮只修改 Android 端，无服务端接口或数据库迁移。Android 10/12/13、无 Google 服务的厂商真机、长时间 Doze、重启和 OEM 自启动策略尚未实测；强行停止不承诺继续接收。
+- 最终测试包：新增通知/权限 3 项及原有隐私/加密 12 项设备测试全部通过；CI [36416545397](https://github.com/arcxya09/touch/actions/runs/36416545397) 成功，包含 Android 构建/单元测试/Lint 及 SQLite、PostgreSQL 服务端兼容性测试。
+- [Release 36416875566](https://github.com/arcxya09/touch/actions/runs/36416875566) 成功发布 `v1.0.6`（versionCode 7）为 Latest。公开 APK 为 11,020,577 字节，SHA-256 `aa88e0bb8db5a6e3b983e593b7d0575f805d038c3fbcf0909886fa5822065677`，与原长期签名证书一致。
+- 匿名 Latest 清单及固定标签 APK 下载校验通过；隔离模拟器使用公开的正式 APK 从 1.0.5 覆盖升级到 1.0.6，凭证/隐私配置哈希及计时状态保留，首次启动仍先显示番茄钟。
