@@ -14,7 +14,22 @@ from sqlalchemy.orm import Session
 from .database import get_db
 from .models import MobileSession, User, now
 
-password_hasher = PasswordHasher(memory_cost=19456, time_cost=2, parallelism=1)
+class BoundedPasswordHasher:
+    """Bound Argon2 memory during bursts on the small single-process server."""
+    def __init__(self):
+        self.hasher = PasswordHasher(memory_cost=19456, time_cost=2, parallelism=1)
+        self.slots = threading.BoundedSemaphore(2)
+
+    def hash(self, password):
+        with self.slots:
+            return self.hasher.hash(password)
+
+    def verify(self, encoded, password):
+        with self.slots:
+            return self.hasher.verify(encoded, password)
+
+
+password_hasher = BoundedPasswordHasher()
 dummy_hash = password_hasher.hash(secrets.token_urlsafe(24))
 bearer = HTTPBearer(auto_error=False)
 

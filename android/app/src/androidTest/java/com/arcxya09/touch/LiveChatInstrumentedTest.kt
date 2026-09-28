@@ -36,17 +36,28 @@ class LiveChatInstrumentedTest {
             val file = app.repository.download(message.file!!) { }
             assertEquals(message.file!!.size, file.length())
         }
-        ActivityScenario.launch(MainActivity::class.java).use {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            lateinit var model: AppViewModel
+            scenario.onActivity { model = androidx.lifecycle.ViewModelProvider(it)[AppViewModel::class.java] }
             compose.waitUntil(15000) { compose.onAllNodesWithText("验收设备B").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText("验收设备B").performClick()
             compose.waitUntil(15000) { compose.onAllNodesWithText("验收文本.txt").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(15000) { !model.busy }
             compose.onNodeWithText("生产联调：你好，Touch").assertIsDisplayed()
             compose.onNodeWithText("验收文本.txt").performClick()
             compose.waitUntil(15000) { compose.onAllNodesWithText("Touch UTF-8 文件传输验证").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText("Touch UTF-8 文件传输验证").assertIsDisplayed()
             compose.onNodeWithText("返回").performClick()
+            compose.waitUntil(15000) { !model.busy }
             compose.onNodeWithText("验收图片.png").performClick()
             compose.waitUntil(15000) { compose.onAllNodesWithContentDescription("文件预览").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithContentDescription("文件预览").assertIsDisplayed()
+            compose.onNodeWithText("返回").performClick()
+            compose.waitUntil(15000) { !model.busy }
+            compose.onNodeWithText("验收文档.pdf").performClick()
+            compose.waitUntil(15000) { compose.onAllNodesWithText("1 / 2").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("下一页").performClick()
+            compose.waitUntil(15000) { compose.onAllNodesWithText("2 / 2").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithContentDescription("文件预览").assertIsDisplayed()
         }
         app.repository.send(cid, "Android 设备端发送验证")

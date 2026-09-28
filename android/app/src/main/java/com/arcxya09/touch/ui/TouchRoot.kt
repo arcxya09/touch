@@ -250,7 +250,7 @@ import java.util.Locale
     val own = message.senderId == vm.user?.id
     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (own) Alignment.End else Alignment.Start) {
         Surface(shape = RoundedCornerShape(18.dp), color = if (own) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-            modifier = Modifier.widthIn(max = 310.dp).then(if (message.file != null && !message.pending) Modifier.clickable { vm.openFile(message.file) } else Modifier)) {
+            modifier = Modifier.widthIn(max = 310.dp).then(if (message.file != null && !message.pending) Modifier.clickable(enabled = !vm.busy) { vm.openFile(message.file) } else Modifier)) {
             Column(Modifier.padding(14.dp)) {
                 if (message.kind == "text") Text(message.text)
                 else {

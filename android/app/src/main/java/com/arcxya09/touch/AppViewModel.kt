@@ -244,7 +244,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             } finally { updateProgress = null }
         }
     }
-    fun cancelUpdate() { updateJob?.cancel(); updateProgress = null }
+    fun cancelUpdate() { updateJob?.cancel(); updater?.cancel(); updateProgress = null }
     fun action(block: suspend () -> Unit) {
         if (busy || !mayShowChat) return
         work = viewModelScope.launch {
