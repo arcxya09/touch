@@ -52,4 +52,3 @@ import kotlin.math.hypot
         }
     }
 }
-

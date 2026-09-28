@@ -55,6 +55,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val mayShowChat get() = initialized && (!privacy || !locked)
 
     init {
+        // A timer that expired while this process was absent must not ring on reopening.
+        pomodoro.schedule()
         viewModelScope.launch {
             runCatching {
                 val config = app.secureStore.read("privacy")?.let(::JSONObject)
@@ -218,6 +220,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val result = service.check()
                 if (foreground && mayShowChat) {
+                    if (update?.versionCode != result?.versionCode) updateApk = null
                     update = result; showUpdate = result != null
                     if (manual && result == null) error = "当前已是最新版本"
                 }

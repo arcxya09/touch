@@ -15,7 +15,7 @@ def main():
     parser.add_argument("--username", default="admin")
     parser.add_argument("--password-stdin", action="store_true", help="从标准输入读取密码，勿放入命令行参数")
     args = parser.parse_args()
-    password = input() if args.password_stdin else getpass.getpass("管理员密码（至少 12 位）: ")
+    password = input().removesuffix("\r") if args.password_stdin else getpass.getpass("管理员密码（至少 12 位）: ")
     if len(password) < 12 or len(password) > 128 or not re.fullmatch(r"[a-z0-9_]{3,32}", args.username):
         parser.error("账号须为 3—32 位小写字母/数字/下划线，密码须为 12—128 位")
     with SessionLocal() as db:

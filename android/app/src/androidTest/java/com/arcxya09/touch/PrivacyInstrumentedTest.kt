@@ -83,4 +83,14 @@ class PrivacyInstrumentedTest {
         assertNull(cache.get("message", "test"))
         assertNull(cache.get("meta", "cursor"))
     }
+    @Test fun expiredTimerDoesNotRingOnColdStart() {
+        app.getSharedPreferences("pomodoro", Context.MODE_PRIVATE).edit()
+            .putBoolean("running", true).putLong("wallEnd", 1L).putInt("boot", -100).commit()
+        launch()
+        val state = com.arcxya09.touch.timer.Pomodoro(app).state()
+        assertFalse(state.running)
+        assertTrue(state.complete)
+        val manager = app.getSystemService(android.app.NotificationManager::class.java)
+        assertTrue(manager.activeNotifications.none { it.id == 25 })
+    }
 }

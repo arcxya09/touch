@@ -4,6 +4,7 @@ import logging
 import shutil
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from . import admin, api
@@ -40,6 +41,15 @@ app.include_router(admin.router)
 
 @app.middleware("http")
 async def response_headers(request, call_next):
+    # Authenticate uploads before the multipart parser spools them to disk.
+    if request.method == "POST" and request.url.path == "/api/v1/files":
+        header = request.headers.get("authorization", "")
+        if not header.startswith("Bearer "):
+            return JSONResponse({"detail": "请登录"}, 401)
+        try:
+            await asyncio.to_thread(socket_status, header[7:])
+        except HTTPException as error:
+            return JSONResponse({"detail": error.detail}, error.status_code, headers=error.headers)
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"

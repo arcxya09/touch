@@ -98,7 +98,7 @@ class Updater(private val activity: Activity, private val api: Api) {
         check(received.isNotEmpty() && received == trusted) { "安装包签名不匹配" }
     }
     fun install(file: File, manifest: UpdateManifest) {
-        verify(file, manifest)
+        try { verify(file, manifest) } catch (error: Exception) { file.delete(); throw error }
         if (!activity.packageManager.canRequestPackageInstalls()) {
             activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}")))
             return
