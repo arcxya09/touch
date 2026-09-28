@@ -14,6 +14,8 @@ GitHub Actions Secrets：
 
 本地构建使用 `TOUCH_KEYSTORE`、`TOUCH_STORE_PASSWORD`、`TOUCH_KEY_PASSWORD`、`TOUCH_KEY_ALIAS` 环境变量。未提供签名材料时不会假装生成正式签名包。
 
+公钥证书指纹保存在 `signing-certificate.sha256`，发布时额外核对，防止错误更换 Secrets 后发布不同签名的 APK。该指纹不是私钥，可公开。
+
 ## 发布流程
 
 1. 修改根目录 `version.properties` 和 `CHANGELOG.md`，严格递增 `versionCode`。
@@ -23,6 +25,8 @@ GitHub Actions Secrets：
 5. 上传草稿附件，比较 GitHub 返回的附件大小和 SHA-256，通过后发布并标记 Latest。
 
 已存在的 Release 不会被覆盖。工作流失败留下草稿时，先排查失败原因和附件；不要直接把不完整草稿设为 Latest。需要修正已经发布的安装包时，发布更高 `versionCode` 的新版本。
+
+如果构建和附件上传已成功，仅最后的发布步骤失败，可在 Actions 手动运行 **Finalize verified draft**，输入现有草稿标签。此流程不替换附件，会重新下载并核对远端摘要、APK 身份、固定签名证书、清单及版本递增后才发布。缺失或不匹配的附件会让流程失败并继续保留草稿。
 
 普通分支和 PR 只运行 CI，不接触签名 Secrets。正式发布在标签事件下执行，仓库管理员应限制有权推送标签的人员。
 

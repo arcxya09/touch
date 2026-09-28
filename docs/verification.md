@@ -24,7 +24,11 @@
 
 ## 发布后核验
 
-正式 Release 和匿名下载的核验结果将在发布完成后补充。
+- [v1.0.0](https://github.com/arcxya09/touch/releases/tag/v1.0.0) 已发布为 Latest，固定 3 份附件齐全，APK 为 `com.arcxya09.touch`、版本 `1.0.0 / 1`、最低 API 29。
+- APK 大小 2,891,228 字节；SHA-256：`2b35e34ae9823a57ee4c18b884a78afe04b0848efba6e16f569e71994b13bc6d`。
+- 未携带 GitHub 凭据，匿名请求 Latest 清单与固定标签 APK 均返回 HTTP 200；下载文件与构建附件逐字节一致，大小和 SHA-256 均匹配。
+- 正式下载包在 Android 16 模拟器全新安装成功，首次启动显示登录页。
+- 首次发布的构建/签名/测试成功，但草稿按标签查询返回 404，按设计保留草稿。已修正为鉴权后的发行列表查询，并通过 [独立草稿核验工作流](https://github.com/arcxya09/touch/actions/runs/36373823731) 校验原附件后发布，未覆盖附件。
 
 ## 尚未实测
 

@@ -4,6 +4,10 @@ Android 10+ 私人单聊与番茄钟。账号由管理员创建；隐私模式�
 
 客户端原生 Kotlin / Compose；服务端 FastAPI / PostgreSQL；APK 使用 GitHub Release 发布并在应用内检查更新。
 
+下载：[最新正式 APK](https://github.com/arcxya09/touch/releases/latest/download/touch.apk) · [版本说明](https://github.com/arcxya09/touch/releases)
+
+生产管理后台：[chat.worldofmy.uk/admin](https://chat.worldofmy.uk/admin)。先由管理员创建账号，手机首次登录后改密，再到设置中录入图案并开启隐私模式。
+
 ## 功能
 
 - 管理员开户、首次改密、单设备会话、精确账号搜索与好友申请。

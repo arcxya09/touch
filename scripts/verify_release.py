@@ -8,7 +8,7 @@ from pathlib import Path
 tag = sys.argv[1]
 # The tag endpoint may return 404 for a draft; list authenticated releases instead.
 pages = json.loads(subprocess.check_output(["gh", "api", "repos/arcxya09/touch/releases?per_page=100",
-                                           "--paginate", "--slurp"], text=True))
+                                           "--paginate", "--slurp"], text=True, encoding="utf-8"))
 matches = [item for page in pages for item in page if item["tag_name"] == tag]
 assert len(matches) == 1, "Missing or ambiguous release draft"
 release = matches[0]
