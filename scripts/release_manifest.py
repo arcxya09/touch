@@ -26,7 +26,7 @@ def main():
     parser.add_argument("--apk", type=Path, required=True)
     parser.add_argument("--aapt", required=True)
     parser.add_argument("--tag", required=True)
-    parser.add_argument("--notes", type=Path, default=Path("CHANGELOG.md"))
+    parser.add_argument("--notes", type=Path, default=Path("RELEASE_NOTES.md"))
     parser.add_argument("--output", type=Path, default=Path("dist"))
     args = parser.parse_args()
     manifest = build_manifest(args.apk, args.aapt, args.tag, args.notes)

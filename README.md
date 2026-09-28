@@ -1,71 +1,36 @@
 # Touch番茄钟
 
-Android 10+ 私人单聊与番茄钟。账号由管理员创建；隐私模式通过隐藏九宫格图案进入聊天，离开前台立即锁定。
-
-客户端原生 Kotlin / Compose；服务端 FastAPI / PostgreSQL；APK 使用 GitHub Release 发布并在应用内检查更新。
-
-下载：[最新正式 APK](https://github.com/arcxya09/touch/releases/latest/download/touch.apk) · [版本说明](https://github.com/arcxya09/touch/releases)
-
-生产管理后台：[chat.worldofmy.uk/admin](https://chat.worldofmy.uk/admin)。先由管理员创建账号，手机首次登录后改密，再到设置中录入图案并开启隐私模式。
+一款适用于 Android 10 及以上系统的极简番茄钟，让专注与休息更有节奏。
 
 ## 功能
 
-- 管理员开户时可选择管理员或普通用户，首次改密、单设备会话、精确账号搜索与好友申请；管理员主动加好友直接生效。
-- 后台可删除普通用户账号，需输入完整账号名确认。删除后撤销登录、移除联系人关系，对方已收到的历史保留。管理员账号受保护。
-- 文字、图片和文件单聊，离线补齐、幂等重试及个人历史清理。
-- 图片、PDF、UTF-8 文本预览；其他附件可通过外部应用查看或导出。
-- 后台和 App 可编辑昵称、个人简介和头像；头像需登录读取。
-- 仅管理员可在 App 设置中开启已读标识；已发送消息旁的小灰点表示对方已读，默认关闭。
-- 本机定时销毁：默认关闭，开启时默认保留 1 小时，可自定义时长，过期历史不再拉取，服务器及其他账号不受影响。
-- 本地数据库、图片及文件加密保存，旧缓存自动迁移，预览不生成明文临时文件。详见[本地保留与加密](docs/local-storage.md)。
-- 专注与休息计时、后台结束提醒、隐藏九宫格和系统截图保护。
-- 读取本仓库最新正式 Release，用户确认后下载，核对哈希、包名、版本及签名，再交给系统安装。
+- 默认专注 25 分钟、休息 5 分钟，可按习惯调整时长。
+- 支持开始、暂停、继续和重置，每段结束后手动开始下一段。
+- 极简数字与进度环，适配系统深色模式。
+- 保存计时状态，重新打开应用后可继续查看进度。
+- 到时提醒，并支持在应用内检查和安装新版本。
 
-图片限制 20 MiB，其他文件限制 100 MiB。后台不保证聊天提醒。服务器保存可读取的消息，**不提供端到端加密**。隐私模式保护应用界面，不控制导出文件或外部应用。
+## 下载
 
-## 目录
+[下载最新版 APK](https://github.com/arcxya09/touch/releases/latest/download/touch.apk) · [查看版本说明](https://github.com/arcxya09/touch/releases)
 
-| 目录 | 内容 |
-|---|---|
-| `android/` | Android 应用、单元测试和设备测试 |
-| `server/` | REST/WebSocket、网页管理后台、迁移和接口测试 |
-| `ops/` | Docker Compose、Caddy、备份与恢复 |
-| `scripts/` | Release 清单生成与附件核验 |
+安装后即可使用番茄钟。需要到时提醒时，请按系统提示允许通知及相关闹钟权限；权限未开启时仍可正常计时。
 
-## 本地服务
+## 使用
 
-需要 Python 3.12。以下命令在 `server/` 中执行：
+1. 选择专注或休息，设置适合自己的时长。
+2. 点击开始，需要时可暂停或重置。
+3. 一段计时结束后，手动开始下一段。
 
-```sh
-python -m venv .venv
-. .venv/bin/activate
-pip install -r requirements-dev.txt
-mkdir -p data
-alembic upgrade head
-python -m app.cli create-admin
-SECURE_COOKIES=false uvicorn app.main:app --reload
-```
+## 开发
 
-Windows 使用 `.venv\Scripts\Activate.ps1`，并通过 `$env:SECURE_COOKIES='false'` 设置开发 Cookie。SQLite 仅用于开发和部分测试，生产使用 PostgreSQL。
+原生 Kotlin 与 Jetpack Compose 开发，最低支持 Android 10（API 29）。
 
-管理后台：`/admin`；接口文档：`/docs`；健康检查：`/health`。管理员初始密码通过终端安全输入，没有默认密码。
-
-## Android 构建
-
-需要 JDK 21、Android SDK 37.0 和 Build Tools 36.0.0：
+构建需要 JDK 21、Android SDK 37.0 和 Build Tools 36.0.0：
 
 ```sh
 cd android
 ./gradlew assembleDebug testDebugUnitTest lintDebug
-./gradlew connectedDebugAndroidTest
 ```
 
-正式 API 地址为 `https://chat.worldofmy.uk`，可在构建前设置 `TOUCH_API_BASE` 覆盖。正式包名 `com.arcxya09.touch`，调试包名附加 `.debug`，调试版本关闭正式更新通道。
-
-Windows 中文目录出现 Gradle 测试进程类加载错误时，使用临时英文盘符映射工作目录后构建，例如 `subst T: <项目完整路径>`；确认该盘符未被使用，构建后移除映射。不要因此跳过测试。
-
-## 部署和发布
-
-参见 [部署说明](docs/deployment.md)、[发布与签名](docs/releases.md)、[接口约定](docs/api.md)、[验证记录](docs/verification.md)。
-
-签名密钥、账号密码及 `.env` 必须单独保管。丢失签名密钥将无法按当前方案对已安装 APK 覆盖升级。
+正式版本通过 GitHub Releases 分发。
