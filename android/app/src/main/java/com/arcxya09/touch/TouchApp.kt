@@ -12,6 +12,8 @@ import com.arcxya09.touch.security.SecureStore
 class TouchApp : Application() {
     val secureStore by lazy { SecureStore(this) }
     val vault by lazy { LocalVault(this) }
+    val alertSettings by lazy { com.arcxya09.touch.notifications.AlertSettings(vault) }
+    val alerts by lazy { com.arcxya09.touch.notifications.AlertNotifications(this) }
     val retention by lazy { RetentionPolicy(vault) }
     val database by lazy { EncryptedDatabase.open(this, vault) }
     val repository by lazy { Repository(this, { database }, secureStore) }

@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.arcxya09.touch.data.*
+import com.arcxya09.touch.notifications.*
 import com.arcxya09.touch.data.Retention
 import com.arcxya09.touch.security.Pattern
 import com.arcxya09.touch.timer.Pomodoro
@@ -30,6 +31,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var work: Job? = null
     private var updateJob: Job? = null
     private var foreground = false
+    var alertOptions by mutableStateOf(AlertOptions()); private set
+    var backgroundAlerts by mutableStateOf(false); private set
+    var pendingNotificationSettings = false
+    var pendingNotificationEnable = false
+    fun renderedChat() {
+        app.alerts.chatVisible = foreground && mayShowChat && user != null && user?.mustChange == false && screen != "timer"
+        if (app.alerts.chatVisible) app.alerts.clearMessages()
+    }
     var initialized by mutableStateOf(false); private set
     var privacy by mutableStateOf(marker.exists()); private set
     var locked by mutableStateOf(true); private set
@@ -76,6 +85,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }.onFailure { privacy = true; privacyChoiceMade = true }
             try {
                 repository.initialize()
+                alertOptions = withContext(Dispatchers.IO) { app.alertSettings.read() }
                 retentionEnabled = withContext(Dispatchers.IO) { repository.retention.enabled }
                 retentionSeconds = withContext(Dispatchers.IO) { repository.retention.seconds }
                 user = repository.api.user
@@ -97,7 +107,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 timer = pomodoro.state()
                 if (initialized && foreground && !storageError) {
                     try {
-                        if (repository.purge()) reloadLocal()
+                        alertOptions = withContext(Dispatchers.IO) { app.alertSettings.read() }
+                        backgroundAlerts = AlertService.running
+                        if (repository.purge() || AlertService.running || (user != null && repository.api.user == null)) reloadLocal()
+                        if (foreground && mayShowChat && !busy && pendingNotificationEnable) {
+                            pendingNotificationEnable = false; enableAlerts(true)
+                        }
                         if (preview?.second?.let { withContext(Dispatchers.IO) { !it.valid() } } == true) {
                             preview = null; if (screen == "preview") screen = "chat"
                         }
@@ -119,11 +134,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun background() {
         foreground = false
+        app.alerts.chatVisible = false
         cacheReady = false
         if (privacy) locked = true
         showUpdate = false
         syncJob?.cancel(); work?.cancel(); updateJob?.cancel()
-        repository.stop()
+        if (!AlertService.running) repository.stop()
         busy = false; transfer = null; updateProgress = null; connected = false
         preview = null
         if (screen == "preview") screen = if (conversationId != null) "chat" else "home"
@@ -141,6 +157,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (MessageDigest.isEqual(Pattern.encode(points).toByteArray(), pattern.toByteArray())) {
             attempts.edit().clear().commit()
             locked = false; error = null
+            if (screen == "timer") screen = "home"
             startForegroundWork()
         } else {
             val count = attempts.getInt("failures", 0) + 1
@@ -154,7 +171,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         privacyChoiceMade = true; needsPrivacySetup = false
         pattern = newPattern
         privacy = true; locked = true; screen = "home"; showUpdate = false
-        syncJob?.cancel(); repository.stop()
+        syncJob?.cancel(); app.alerts.chatVisible = false; if (!AlertService.running) repository.stop()
     }
     fun skipPrivacySetup() = action(allowSetup = true) {
         if (!needsPrivacySetup || user == null || user?.mustChange == true) return@action
@@ -188,14 +205,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
     private fun startForegroundWork() {
         if (!foreground || !mayShowChat) return
+        if (pendingNotificationSettings && user != null && user?.mustChange == false) {
+            pendingNotificationSettings = false; screen = "notifications"
+        }
         autoUpdate()
         if (user == null || user?.mustChange == true || syncJob?.isActive == true) return
         syncJob = viewModelScope.launch {
             while (isActive && foreground && mayShowChat) {
                 try {
+                    val options = withContext(Dispatchers.IO) { app.alertSettings.read() }
+                    alertOptions = options
+                    if (options.canRun(user?.id) && app.alerts.allowed() && !AlertService.running) AlertService.start(app)
+                    if (AlertService.running || (options.canRun(user?.id) && app.alerts.allowed())) {
+                        connected = AlertService.connected; reloadLocal(); delay(1000); continue
+                    }
                     repository.sync(); connected = true; reloadLocal()
-                    repository.connect {
-                        if (foreground && mayShowChat) launch {
+                    if (!AlertService.running) repository.connect {
+                        if (foreground && mayShowChat && !AlertService.running) launch {
                             try { repository.sync(); reloadLocal() } catch (e: Exception) { if (e !is CancellationException) handleError(e, false) }
                         }
                     }
@@ -208,6 +234,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
     private suspend fun reloadLocal() {
+        if (user != null && repository.api.user == null) {
+            app.alerts.chatVisible = false
+            conversations = emptyList(); contacts = emptyList(); messages = emptyList(); preview = null
+            conversationId = null; pendingSelection = null; pendingAvatar = null; screen = "home"
+            if (privacy) locked = true
+        }
         user = repository.api.user
         conversations = repository.conversations(); contacts = repository.contacts()
         conversationId?.let { messages = repository.messages(it) }
@@ -301,6 +333,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         retentionSeconds = hours * 3600
         preview = null
         reloadLocal()
+    }
+
+    fun enableAlerts(enabled: Boolean) = action {
+        if (enabled) {
+            val owner = user?.takeUnless { it.mustChange }?.id ?: return@action
+            if (!app.alerts.allowed()) { error = "请先在系统设置中允许通知，再开启消息通知"; return@action }
+            // Catch up without alerting about historical messages on first opt-in.
+            repository.sync()
+            alertOptions = withContext(Dispatchers.IO) { app.alertSettings.enable(owner) }
+            syncJob?.cancel(); repository.disconnect()
+            if (!AlertService.start(app)) error = "系统暂不允许启动后台提醒，请重新打开应用后重试"
+        } else {
+            alertOptions = withContext(Dispatchers.IO) { app.alertSettings.disable() }
+            AlertService.stop(app)
+            syncJob?.cancel()
+        }
+        syncJob = null; startForegroundWork()
+    }
+    fun alertMode(mode: AlertMode) = action {
+        alertOptions = withContext(Dispatchers.IO) { app.alertSettings.mode(mode) }
+        app.alerts.clearMessages()
+    }
+    fun pauseAlerts(paused: Boolean) = action {
+        alertOptions = withContext(Dispatchers.IO) { app.alertSettings.pause(paused) }
+        if (paused) AlertService.stop(app)
+        else if (!app.alerts.allowed()) error = "系统通知权限未开启，请先允许通知"
+        else if (!AlertService.start(app)) error = "后台提醒启动失败，请重新打开应用后重试"
+        syncJob?.cancel(); syncJob = null; startForegroundWork()
     }
 
     fun checkUpdate(manual: Boolean = true) {

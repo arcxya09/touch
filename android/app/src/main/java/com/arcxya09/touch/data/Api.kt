@@ -18,7 +18,7 @@ import kotlin.coroutines.resumeWithException
 
 class Api(private val secure: SecureStore) {
     val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS).writeTimeout(120, TimeUnit.SECONDS).build()
+        .pingInterval(25, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).writeTimeout(120, TimeUnit.SECONDS).build()
     @Volatile var session: JSONObject? = null
         private set
     private val refreshLock = Mutex()

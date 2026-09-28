@@ -54,6 +54,7 @@ import java.util.Locale
                     "chat" -> ChatScreen(vm, activity)
                     "contacts" -> ContactsScreen(vm)
                     "settings" -> SettingsScreen(vm)
+                    "notifications" -> NotificationSettingsScreen(vm, activity)
                     "profile" -> ProfileScreen(vm, activity)
                     "password" -> PasswordScreen(vm, false)
                     "preview" -> PreviewScreen(vm, activity)
@@ -362,6 +363,7 @@ import java.util.Locale
         Header("设置", { vm.screen = "home" }); Busy(vm)
         Column(Modifier.verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
             vm.user?.let { Avatar(it, vm) }
+            TextButton(onClick = { vm.screen = "notifications" }) { Text("通知与后台运行") }
             TextButton(onClick = { vm.screen = "profile" }) { Text("编辑个人资料") }
             Text(vm.user?.name.orEmpty(), style = MaterialTheme.typography.headlineSmall)
             Text("@${vm.user?.username}", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -396,7 +398,7 @@ import java.util.Locale
             TextButton(onClick = { vm.screen = "timer" }) { Text("打开番茄钟") }
             TextButton(onClick = { vm.checkUpdate() }) { Text("检查更新 · ${BuildConfig.VERSION_NAME}") }
             if (vm.updateApk != null && vm.update != null) TextButton(onClick = { vm.showUpdate = true }) { Text("继续安装已下载的更新") }
-            Text("隐私模式仅在解锁后检查更新。后台不保证聊天提醒，重新打开会补齐离线消息。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("隐私模式仅在解锁后检查更新。可在通知与后台运行中开启提醒；重新打开会补齐离线消息。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedButton(onClick = { logout = true }) { Text("退出账号") }
         }
     }

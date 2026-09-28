@@ -34,29 +34,38 @@ class Repository(private val context: Context, private val database: () -> Touch
     private val syncLock = Mutex()
     private val cache get() = db.cache()
     private var socket: WebSocket? = null
+    private var socketToken: String? = null
+    private var socketEvent: (() -> Unit)? = null
+    private val initLock = Mutex()
+    private var initialized = false
+    @Volatile var onIncoming: ((List<ChatMessage>) -> Unit)? = null
 
-    suspend fun initialize() = withContext(Dispatchers.IO) {
+    suspend fun initialize() = initLock.withLock { withContext(Dispatchers.IO) {
+        if (initialized) return@withContext
         purge()
         files.folder.listFiles()?.filter { it.name.endsWith(".part") }?.forEach { check(it.delete()) }
         runCatching { api.load() }.onFailure { api.save(null); clearLocal() }
-    }
-    suspend fun login(username: String, password: String) = withContext(Dispatchers.IO) {
+        initialized = true
+    } }
+    suspend fun login(username: String, password: String) = syncLock.withLock { withContext(Dispatchers.IO) {
         val session = api.json("/api/v1/auth/login", "POST", JSONObject().put("username", username).put("password", password), false)
+        app.alertSettings.disable()
+        com.arcxya09.touch.notifications.AlertService.stop(app)
         val owner = cache.get("meta", "owner")?.json
         if (owner != session.getJSONObject("user").getString("id")) clearLocal()
         cache.put(TouchDatabase.Item("meta", "owner", session.getJSONObject("user").getString("id")))
         localOwner = session.getJSONObject("user").getString("id")
         purge()
         api.save(session)
-    }
-    suspend fun clearLocal() = withContext(Dispatchers.IO) {
+    } }
+    suspend fun clearLocal() = purgeLock.withLock { withContext(Dispatchers.IO) {
         accessGeneration.incrementAndGet()
         localOwner?.let { retention.cutoff(it) }
         localOwner = null
         db.runInTransaction { cache.clear(); cache.clearPending() }
         File(context.cacheDir, "attachments").listFiles()?.filter { it.isFile }?.forEach { it.delete() }
         files.folder.listFiles()?.filter { it.isFile }?.forEach { check(it.delete()) }
-    }
+    } }
     private fun cutoff(): Long = localOwner?.let(retention::cutoff) ?: Long.MAX_VALUE
     suspend fun enableRetention(enabled: Boolean) = withContext(Dispatchers.IO) {
         retention.setEnabled(enabled, localOwner); purge()
@@ -128,7 +137,9 @@ class Repository(private val context: Context, private val database: () -> Touch
             check(source.delete()) { "无法移除旧版明文缓存" }
         }
     }
-    suspend fun logout(remote: Boolean = true) {
+    suspend fun logout(remote: Boolean = true) = syncLock.withLock {
+        withContext(Dispatchers.IO) { app.alertSettings.disable() }
+        com.arcxya09.touch.notifications.AlertService.stop(app)
         if (remote) runCatching { api.json("/api/v1/auth/logout", "POST") }
         stop()
         api.save(null)
@@ -219,6 +230,7 @@ class Repository(private val context: Context, private val database: () -> Touch
         if (api.user == null || api.user?.mustChange == true) return@withContext
         // Web profile edits and receipt preferences also refresh existing sessions.
         acceptUser(api.json("/api/v1/auth/me"))
+        val incoming = ArrayDeque<ChatMessage>()
         do {
             val cursor = cache.get("meta", "cursor")?.json?.toLongOrNull() ?: 0L
             val result = api.json("/api/v1/sync?cursor=$cursor&after_time=${cutoff()}")
@@ -228,7 +240,13 @@ class Repository(private val context: Context, private val database: () -> Touch
                     val event = events.getJSONObject(index)
                     val payload = event.getJSONObject("payload")
                     when (event.getString("kind")) {
-                        "message" -> storeMessage(payload)
+                        "message" -> {
+                            storeMessage(payload)
+                            if (payload.getString("sender_id") != api.user?.id) {
+                                incoming.addLast(ChatMessage.parse(payload))
+                                if (incoming.size > 20) incoming.removeFirst()
+                            }
+                        }
                         "clear" -> if (payload.optBoolean("deleted")) deleteLocalConversation(payload.getString("conversation_id"), payload.getLong("seq"))
                             else clearMessages(payload.getString("conversation_id"), payload.getLong("seq"))
                     }
@@ -254,6 +272,12 @@ class Repository(private val context: Context, private val database: () -> Touch
             }
         }
         purge()
+        val eligible = incoming.filter { message ->
+            val conversation = cache.get("conversation", message.conversationId)?.json?.let(::JSONObject)
+            cache.get("message", message.id) != null && conversation != null &&
+                message.seq > conversation.optLong("read_seq") && message.seq > conversation.optLong("clear_seq")
+        }
+        if (eligible.isNotEmpty()) onIncoming?.invoke(eligible)
     } }
     suspend fun history(cid: String, before: Long? = null): Boolean = syncLock.withLock { withContext(Dispatchers.IO) {
         purge()
@@ -373,17 +397,28 @@ class Repository(private val context: Context, private val database: () -> Touch
             target
         } finally { partial.delete() }
     }
-    fun connect(onEvent: () -> Unit) {
-        socket?.cancel()
+    @Synchronized fun connect(onEvent: () -> Unit) {
+        socketEvent = onEvent
         val access = api.session?.optString("access_token") ?: return
-        val url = BuildConfig.API_BASE.replaceFirst("https://", "wss://") + "/ws"
+        if (socket != null && socketToken == access) return
+        disconnect()
+        socketEvent = onEvent
+        socketToken = access
+        val url = BuildConfig.API_BASE.replaceFirst("https://", "wss://").replaceFirst("http://", "ws://") + "/ws"
         socket = api.client.newWebSocket(Request.Builder().url(url).header("Authorization", "Bearer $access").build(), object : WebSocketListener() {
-            override fun onMessage(webSocket: WebSocket, text: String) = onEvent()
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) = onEvent()
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) = onEvent()
+            override fun onMessage(webSocket: WebSocket, text: String) { synchronized(this@Repository) {
+                if (socket === webSocket) socketEvent?.invoke()
+            } }
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, reason) }
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) = ended(webSocket)
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) = ended(webSocket)
+            private fun ended(webSocket: WebSocket) { synchronized(this@Repository) {
+                if (socket === webSocket) { socket = null; socketToken = null; socketEvent?.invoke() }
+            } }
         })
     }
-    fun stop() { socket?.cancel(); socket = null; api.closeConnections() }
+    @Synchronized fun disconnect() { val old = socket; socket = null; socketToken = null; socketEvent = null; old?.cancel() }
+    fun stop() { disconnect(); api.closeConnections() }
 }
 
 fun sha256(file: File): String {
