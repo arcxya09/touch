@@ -39,12 +39,25 @@ class UpgradeVerifyTest {
         val width = device.displayWidth - 2 * left
         val top = device.findObject(By.text("此刻，只做一件事")).visibleBounds.bottom + 28 * density
         fun point(column: Int, row: Int) = Point((left + (column + 0.5f) * width / 3).toInt(), (top + (row + 0.5f) * width / 3).toInt())
-        device.swipe(arrayOf(point(0, 0), point(1, 0), point(2, 0), point(2, 1)), 35)
-        assertTrue(device.wait(Until.hasObject(By.text("验收设备B")), 15000))
+        // The timer is shown immediately while a first-launch encryption migration runs.
+        // Gestures during initialization are intentionally ignored; retry after the migration.
+        var unlocked = false
+        for (attempt in 0 until 4) {
+            device.swipe(arrayOf(point(0, 0), point(1, 0), point(2, 0), point(2, 1)), 35)
+            if (device.wait(Until.hasObject(By.text("验收设备B")), 3000)) { unlocked = true; break }
+        }
+        assertTrue(unlocked)
         val database = context.getDatabasePath("touch.db").readBytes()
         assertFalse(database.take(16).toByteArray().contentEquals("SQLite format 3\u0000".toByteArray()))
         assertFalse(database.toString(Charsets.ISO_8859_1).contains(probe.getString("user")))
         device.findObject(By.text("验收设备B")).click()
         assertTrue(device.wait(Until.hasObject(By.text("生产联调：你好，Touch")), 15000))
+        device.pressBack()
+        device.findObject(By.desc("设置")).click()
+        assertTrue(device.wait(Until.hasObject(By.text("本地定时销毁")), 5000))
+        device.findObject(By.text("设置保留时间")).click()
+        device.findObject(By.text("24 小时")).click()
+        device.findObject(By.text("确认并应用")).click()
+        assertTrue(device.wait(Until.hasObject(By.textContains("保留最近 24 小时")), 5000))
     }
 }
