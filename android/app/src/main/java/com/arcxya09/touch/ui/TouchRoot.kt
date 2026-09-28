@@ -114,7 +114,12 @@ import java.util.Locale
         actions()
     }
 }
-@Composable private fun Busy(vm: AppViewModel) { if (vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth()) }
+@Composable internal fun BusyIndicator(busy: Boolean) {
+    Box(Modifier.fillMaxWidth().height(4.dp)) {
+        if (busy) LinearProgressIndicator(Modifier.fillMaxSize())
+    }
+}
+@Composable private fun Busy(vm: AppViewModel) = BusyIndicator(vm.busy)
 @Composable private fun Empty(title: String, subtitle: String) {
     Column(Modifier.fillMaxWidth().padding(40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(32.dp)); Text(title, style = MaterialTheme.typography.titleMedium)
@@ -303,7 +308,7 @@ import java.util.Locale
         Busy(vm)
         LazyColumn(Modifier.weight(1f), state = scroll, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { if (vm.hasMore) TextButton(onClick = vm::older, enabled = !vm.busy, modifier = Modifier.fillMaxWidth()) { Text("加载更早消息") } }
-            items(vm.messages, key = { it.id }) { message -> MessageBubble(message, vm) }
+            items(vm.messages, key = { it.id }) { message -> MessageBubble(message, vm, activity::openWebLink) }
         }
         if (conversation?.canSend == false) Text("当前无法发送，请先建立有效联系人关系。", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
         else Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.Bottom) {
@@ -318,13 +323,13 @@ import java.util.Locale
     if (clear) DeleteConversationConfirm({ clear = false }) { vm.conversationId?.let(vm::deleteConversation); clear = false }
 }
 
-@Composable private fun MessageBubble(message: ChatMessage, vm: AppViewModel) {
+@Composable private fun MessageBubble(message: ChatMessage, vm: AppViewModel, openLink: (String) -> Unit) {
     val own = message.senderId == vm.user?.id
     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (own) Alignment.End else Alignment.Start) {
         Surface(shape = RoundedCornerShape(18.dp), color = if (own) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
             modifier = Modifier.widthIn(max = 310.dp).then(if (message.file != null && !message.pending) Modifier.clickable(enabled = !vm.busy) { vm.openFile(message) } else Modifier)) {
             Column(Modifier.padding(14.dp)) {
-                if (message.kind == "text") Text(message.text)
+                if (message.kind == "text") MessageText(message.text, openLink, Modifier.testTag("message-text-${message.id}"))
                 else {
                     Icon(if (message.kind == "image") Icons.Outlined.Image else Icons.Outlined.Description, null)
                     Text(message.file?.name ?: "附件", fontWeight = FontWeight.Medium)

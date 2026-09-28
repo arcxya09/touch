@@ -92,6 +92,20 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= 31 && !getSystemService(AlarmManager::class.java).canScheduleExactAlarms())
             startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$packageName")))
     }
+    fun openWebLink(url: String) {
+        if (!model.mayShowChat) return
+        val uri = Uri.parse(url)
+        if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.host.isNullOrBlank()) return
+        try {
+            val view = Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE)
+            // Resolve against a host-free web selector: default browser, never an app deep link.
+            // The launched browser still receives the original URL in the outer intent.
+            view.selector = Intent(Intent.ACTION_VIEW, Uri.parse("https://"))
+                .addCategory(Intent.CATEGORY_BROWSABLE)
+            startActivity(view)
+        } catch (_: android.content.ActivityNotFoundException) { model.error = "未找到可用浏览器，请安装或启用浏览器后重试" }
+          catch (_: SecurityException) { model.error = "系统暂不允许打开浏览器" }
+    }
     fun openExternal(file: EncryptedAttachment, mime: String) {
         try {
             val uri = AttachmentProvider.share("$packageName.attachments", file)
