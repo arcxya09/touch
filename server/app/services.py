@@ -54,25 +54,27 @@ def visible_after(conversation: Conversation, user_id: str):
     return conversation.a_clear if user_id == conversation.a else conversation.b_clear
 
 
-def conversation_json(db: Session, conversation: Conversation, user_id: str):
+def conversation_json(db: Session, conversation: Conversation, user_id: str, after_time: int = 0):
     clear = visible_after(conversation, user_id)
     read = conversation.a_read if user_id == conversation.a else conversation.b_read
     peer_id = conversation.b if user_id == conversation.a else conversation.a
     peer = db.get(User, peer_id)
     contact = db.get(Contact, conversation.pair_key)
-    last = db.scalar(select(Message).where(Message.conversation_id == conversation.id, Message.seq > clear)
+    last = db.scalar(select(Message).where(Message.conversation_id == conversation.id, Message.seq > clear,
+                                          Message.created_at > after_time)
                      .order_by(Message.seq.desc()).limit(1))
     unread = db.scalar(select(func.count()).select_from(Message).where(
-        Message.conversation_id == conversation.id, Message.seq > max(read, clear), Message.sender_id != user_id))
+        Message.conversation_id == conversation.id, Message.seq > max(read, clear), Message.sender_id != user_id,
+        Message.created_at > after_time))
     return {"id": conversation.id, "peer": user_json(peer), "unread": unread,
             "clear_seq": clear, "read_seq": read,
             "can_send": bool(contact and contact.state == "accepted" and peer.active),
             "last_message": message_json(db, last) if last else None}
 
 
-def all_conversations(db: Session, user_id: str):
+def all_conversations(db: Session, user_id: str, after_time: int = 0):
     rows = db.scalars(select(Conversation).where(or_(Conversation.a == user_id, Conversation.b == user_id)))
-    result = [conversation_json(db, row, user_id) for row in rows]
+    result = [conversation_json(db, row, user_id, after_time) for row in rows]
     return sorted(result, key=lambda c: (c["last_message"] or {}).get("created_at", 0), reverse=True)
 
 

@@ -23,7 +23,7 @@ import com.arcxya09.touch.AppViewModel
 import com.arcxya09.touch.MainActivity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
+import com.arcxya09.touch.data.EncryptedAttachment
 import kotlin.math.min
 import kotlin.math.sqrt
 
@@ -70,25 +70,25 @@ import kotlin.math.sqrt
     })
 }
 
-@Composable private fun BitmapPreview(file: File) {
+@Composable private fun BitmapPreview(file: EncryptedAttachment) {
     var bitmap by remember(file) { mutableStateOf<Bitmap?>(null) }
     var error by remember(file) { mutableStateOf<String?>(null) }
     LaunchedEffect(file) {
         try {
             bitmap = withContext(Dispatchers.IO) {
                 val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeFile(file.absolutePath, options)
+                file.input().use { BitmapFactory.decodeStream(it, null, options) }
                 require(options.outWidth > 0 && options.outHeight > 0) { "图片格式不支持或已损坏" }
                 var sample = 1
                 while (options.outWidth / sample > 2048 || options.outHeight / sample > 2048) sample *= 2
-                BitmapFactory.decodeFile(file.absolutePath, BitmapFactory.Options().apply { inSampleSize = sample }) ?: error("图片无法解码")
+                file.input().use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample }) } ?: error("图片无法解码")
             }
         } catch (e: Exception) { error = e.message ?: "图片无法显示" }
     }
     if (error != null) Text(error!!, Modifier.padding(24.dp)) else bitmap?.let { ZoomImage(it) } ?: CircularProgressIndicator()
 }
 
-@Composable private fun PdfPreview(file: File) {
+@Composable private fun PdfPreview(file: EncryptedAttachment) {
     var page by remember(file) { mutableIntStateOf(0) }
     var count by remember(file) { mutableIntStateOf(0) }
     var bitmap by remember(file) { mutableStateOf<Bitmap?>(null) }
@@ -97,7 +97,7 @@ import kotlin.math.sqrt
         error = null
         try {
             val result = withContext(Dispatchers.IO) {
-                PdfRenderer(ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)).use { renderer ->
+                PdfRenderer(file.descriptor()).use { renderer ->
                     val total = renderer.pageCount
                     require(total > 0) { "PDF 没有可显示的页面" }
                     renderer.openPage(page.coerceIn(0, total - 1)).use { pdfPage ->
@@ -125,13 +125,13 @@ import kotlin.math.sqrt
     }
 }
 
-@Composable private fun TextPreview(file: File) {
+@Composable private fun TextPreview(file: EncryptedAttachment) {
     var text by remember(file) { mutableStateOf<String?>(null) }
     LaunchedEffect(file) {
         text = withContext(Dispatchers.IO) {
-            if (file.length() > 2 * 1024 * 1024) "文本超过 2 MiB，请使用外部应用查看。"
+            if (file.item.size > 2 * 1024 * 1024) "文本超过 2 MiB，请使用外部应用查看。"
             else runCatching {
-                Charsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(file.readBytes())).toString()
+                Charsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(file.input().use { it.readBytes() })).toString()
             }.getOrDefault("无法按 UTF-8 显示，请使用外部应用查看。")
         }
     }

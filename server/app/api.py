@@ -220,17 +220,19 @@ def change_contact(peer_id: UUID, body: ContactAction, user: User = Depends(read
 
 
 @router.get("/conversations")
-def conversations(user: User = Depends(ready_user), db: Session = Depends(get_db)):
-    return all_conversations(db, user.id)
+def conversations(after_time: int = Query(default=0, ge=0), user: User = Depends(ready_user),
+                  db: Session = Depends(get_db)):
+    return all_conversations(db, user.id, after_time)
 
 
 @router.get("/conversations/{conversation_id}/messages")
 def history(conversation_id: UUID, before: int | None = Query(default=None, ge=1),
+            after_time: int = Query(default=0, ge=0),
             limit: int = Query(default=50, ge=1, le=100), user: User = Depends(ready_user),
             db: Session = Depends(get_db)):
     conversation = conversation_for(db, str(conversation_id), user.id)
     query = select(Message).where(Message.conversation_id == conversation.id,
-                                   Message.seq > visible_after(conversation, user.id))
+                                   Message.seq > visible_after(conversation, user.id), Message.created_at > after_time)
     if before is not None:
         query = query.where(Message.seq < before)
     messages = db.scalars(query.order_by(Message.seq.desc()).limit(limit + 1)).all()
@@ -311,6 +313,7 @@ def clear(conversation_id: UUID, user: User = Depends(ready_user), db: Session =
 
 @router.get("/sync")
 def sync(cursor: int = Query(default=0, ge=0), limit: int = Query(default=100, ge=1, le=500),
+         after_time: int = Query(default=0, ge=0),
          user: User = Depends(ready_user), db: Session = Depends(get_db)):
     rows = db.scalars(select(SyncEvent).where(SyncEvent.user_id == user.id, SyncEvent.seq > cursor)
                       .order_by(SyncEvent.seq).limit(limit + 1)).all()
@@ -321,7 +324,8 @@ def sync(cursor: int = Query(default=0, ge=0), limit: int = Query(default=100, g
             message = db.get(Message, payload["message_id"])
             if message:
                 conversation = conversation_for(db, message.conversation_id, user.id)
-                payload = message_json(db, message) if message.seq > visible_after(conversation, user.id) else None
+                payload = (message_json(db, message) if message.seq > visible_after(conversation, user.id)
+                           and message.created_at > after_time else None)
             else:
                 payload = None
             if payload is None:
@@ -377,15 +381,17 @@ def upload(kind: Literal["image", "file"] = Query(), file: UploadFile = File(),
 
 
 @router.get("/files/{attachment_id}")
-def download(attachment_id: UUID, user: User = Depends(ready_user), db: Session = Depends(get_db)):
+def download(attachment_id: UUID, after_time: int = Query(default=0, ge=0),
+             user: User = Depends(ready_user), db: Session = Depends(get_db)):
     item = db.get(Attachment, str(attachment_id))
     if not item:
         raise HTTPException(404, "附件不存在")
     messages = db.scalars(select(Message).where(Message.attachment_id == item.id)).all()
-    permitted = not messages and item.owner_id == user.id
+    permitted = not messages and item.owner_id == user.id and item.created_at > after_time
     for message in messages:
         conversation = db.get(Conversation, message.conversation_id)
-        if user.id in (conversation.a, conversation.b) and message.seq > visible_after(conversation, user.id):
+        if (user.id in (conversation.a, conversation.b) and message.seq > visible_after(conversation, user.id)
+                and message.created_at > after_time):
             permitted = True
     if not permitted:
         raise HTTPException(404, "附件不存在")

@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import com.arcxya09.touch.BuildConfig
+import com.arcxya09.touch.TouchApp
 import com.arcxya09.touch.security.SecureStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -20,13 +21,22 @@ import java.io.File
 import java.security.MessageDigest
 import java.util.UUID
 
-class Repository(private val context: Context, val db: TouchDatabase, secure: SecureStore) {
+class Repository(private val context: Context, private val database: () -> TouchDatabase, secure: SecureStore) {
+    val db get() = database()
+    private val app get() = context.applicationContext as TouchApp
+    val retention get() = app.retention
+    private val files by lazy { EncryptedAttachments(context, app.vault) }
+    @Volatile private var localOwner: String? = null
+    private val accessGeneration = java.util.concurrent.atomic.AtomicLong()
+    private val purgeLock = Mutex()
     val api = Api(secure)
     private val syncLock = Mutex()
     private val cache get() = db.cache()
     private var socket: WebSocket? = null
 
     suspend fun initialize() = withContext(Dispatchers.IO) {
+        purge()
+        files.folder.listFiles()?.filter { it.name.endsWith(".part") }?.forEach { check(it.delete()) }
         runCatching { api.load() }.onFailure { api.save(null); clearLocal() }
     }
     suspend fun login(username: String, password: String) = withContext(Dispatchers.IO) {
@@ -34,11 +44,85 @@ class Repository(private val context: Context, val db: TouchDatabase, secure: Se
         val owner = cache.get("meta", "owner")?.json
         if (owner != session.getJSONObject("user").getString("id")) clearLocal()
         cache.put(TouchDatabase.Item("meta", "owner", session.getJSONObject("user").getString("id")))
+        localOwner = session.getJSONObject("user").getString("id")
+        purge()
         api.save(session)
     }
     suspend fun clearLocal() = withContext(Dispatchers.IO) {
+        accessGeneration.incrementAndGet()
+        localOwner?.let { retention.cutoff(it) }
+        localOwner = null
         db.runInTransaction { cache.clear(); cache.clearPending() }
         File(context.cacheDir, "attachments").listFiles()?.filter { it.isFile }?.forEach { it.delete() }
+        files.folder.listFiles()?.filter { it.isFile }?.forEach { check(it.delete()) }
+    }
+    private fun cutoff(): Long = localOwner?.let(retention::cutoff) ?: Long.MAX_VALUE
+    suspend fun configureRetention(seconds: Long) = withContext(Dispatchers.IO) {
+        retention.configure(seconds, localOwner); purge()
+    }
+    suspend fun purge(): Boolean = purgeLock.withLock { withContext(Dispatchers.IO) {
+        localOwner = cache.get("meta", "owner")?.json
+        retention.seconds // Validate encrypted policy even before login; never reset a corrupt watermark.
+        val floor = cutoff()
+        var changed = false
+        val keep = mutableSetOf<String>()
+        db.runInTransaction {
+            cache.items("message").forEach {
+                val message = JSONObject(it.json)
+                if (message.getLong("created_at") <= floor) { cache.remove("message", it.id); changed = true }
+                else message.optJSONObject("attachment")?.getString("id")?.let(keep::add)
+            }
+            cache.pendingItems().forEach {
+                if (it.createdAt <= floor) { cache.removePending(it.id); changed = true }
+                else JSONObject(it.body).optString("attachment_id").takeIf(String::isNotBlank)?.let(keep::add)
+            }
+            cache.items("conversation").forEach {
+                val json = JSONObject(it.json)
+                val last = json.optJSONObject("last_message")
+                if (last != null && last.getLong("created_at") <= floor) {
+                    json.put("last_message", JSONObject.NULL).put("unread", 0)
+                    cache.put(TouchDatabase.Item("conversation", it.id, json.toString())); changed = true
+                }
+            }
+            cache.items("attachment").forEach {
+                val json = JSONObject(it.json)
+                if (it.id !in keep && json.optLong("local_created_at", 0) <= floor) {
+                    cache.remove("attachment", it.id); changed = true
+                } else keep.add(it.id)
+            }
+        }
+        files.folder.listFiles()?.filter { it.isFile && !it.name.endsWith(".part") && it.name !in keep }?.forEach {
+            check(it.delete()) { "无法清理过期附件" }; changed = true
+        }
+        migratePlainAttachments()
+        changed
+    } }
+    private fun attachment(message: ChatMessage): EncryptedAttachment {
+        val item = message.file ?: error("附件不存在")
+        val owner = localOwner ?: error("请先登录")
+        val generation = accessGeneration.get()
+        return files.file(item, owner, message.createdAt) {
+            accessGeneration.get() == generation && localOwner == owner && message.createdAt > retention.cutoff(owner)
+        }
+    }
+    private fun migratePlainAttachments() {
+        // Old versions cached plaintext. Convert retained files before any UI is exposed.
+        val legacy = File(context.cacheDir, "attachments")
+        val sources = legacy.listFiles()?.filter { it.isFile }.orEmpty()
+        if (sources.isEmpty()) return
+        val messages = cache.items("message").map { ChatMessage.parse(JSONObject(it.json)) }
+        sources.forEach { source ->
+            val message = messages.firstOrNull { it.file?.id == source.name }
+            if (message != null && message.createdAt > cutoff() && source.length() == message.file!!.size && sha256(source) == message.file.sha256) {
+                val target = attachment(message)
+                val partial = File(files.folder, source.name + ".part")
+                try {
+                    target.encryptTo(partial).use { output -> source.inputStream().use { it.copyTo(output) } }
+                    check(partial.renameTo(target.encryptedFile))
+                } finally { partial.delete() }
+            }
+            check(source.delete()) { "无法移除旧版明文缓存" }
+        }
     }
     suspend fun logout(remote: Boolean = true) {
         if (remote) runCatching { api.json("/api/v1/auth/logout", "POST") }
@@ -53,9 +137,11 @@ class Repository(private val context: Context, val db: TouchDatabase, secure: Se
     suspend fun verifyPassword(password: String) { api.json("/api/v1/auth/verify-password", "POST", JSONObject().put("password", password)) }
     suspend fun contacts(): List<ContactItem> = withContext(Dispatchers.IO) { cache.items("contact").map { ContactItem.parse(JSONObject(it.json)) } }
     suspend fun conversations(): List<Conversation> = withContext(Dispatchers.IO) {
+        purge()
         cache.items("conversation").map { Conversation.parse(JSONObject(it.json)) }.sortedByDescending { it.last?.createdAt ?: 0 }
     }
     suspend fun messages(cid: String): List<ChatMessage> = withContext(Dispatchers.IO) {
+        purge()
         val messages = cache.items("message").map { ChatMessage.parse(JSONObject(it.json)) }.filter { it.conversationId == cid }
         val pending = cache.pendingItems().filter { it.conversationId == cid }.map {
             val json = JSONObject(it.body)
@@ -65,7 +151,7 @@ class Repository(private val context: Context, val db: TouchDatabase, secure: Se
         (messages.sortedBy { it.seq } + pending)
     }
     private fun storeMessage(json: JSONObject) {
-        cache.put(TouchDatabase.Item("message", json.getString("id"), json.toString()))
+        if (json.getLong("created_at") > cutoff()) cache.put(TouchDatabase.Item("message", json.getString("id"), json.toString()))
         cache.removePending(json.getString("client_id"))
     }
     private fun clearMessages(cid: String, through: Long) {
@@ -75,6 +161,7 @@ class Repository(private val context: Context, val db: TouchDatabase, secure: Se
         }
     }
     suspend fun sync() = syncLock.withLock { withContext(Dispatchers.IO) {
+        purge()
         if (api.user == null || api.user?.mustChange == true) return@withContext
         // Populate the role when upgrading an existing 1.0.0 session.
         if (api.session?.optJSONObject("user")?.has("is_admin") == false) {
@@ -83,7 +170,7 @@ class Repository(private val context: Context, val db: TouchDatabase, secure: Se
         }
         do {
             val cursor = cache.get("meta", "cursor")?.json?.toLongOrNull() ?: 0L
-            val result = api.json("/api/v1/sync?cursor=$cursor")
+            val result = api.json("/api/v1/sync?cursor=$cursor&after_time=${cutoff()}")
             db.runInTransaction {
                 val events = result.getJSONArray("events")
                 for (index in 0 until events.length()) {
@@ -97,12 +184,15 @@ class Repository(private val context: Context, val db: TouchDatabase, secure: Se
                 cache.put(TouchDatabase.Item("meta", "cursor", result.getLong("cursor").toString()))
             }
         } while (result.getBoolean("has_more"))
-        val conversations = JSONArray(api.text("/api/v1/conversations"))
+        val conversations = JSONArray(api.text("/api/v1/conversations?after_time=${cutoff()}"))
         val contacts = JSONArray(api.text("/api/v1/contacts"))
         db.runInTransaction {
             cache.removeKind("conversation"); cache.removeKind("contact")
             for (i in 0 until conversations.length()) {
                 val item = conversations.getJSONObject(i)
+                item.optJSONObject("last_message")?.let { last ->
+                    if (last.getLong("created_at") <= cutoff()) item.put("last_message", JSONObject.NULL).put("unread", 0)
+                }
                 cache.put(TouchDatabase.Item("conversation", item.getString("id"), item.toString()))
                 clearMessages(item.getString("id"), item.getLong("clear_seq"))
             }
@@ -113,7 +203,8 @@ class Repository(private val context: Context, val db: TouchDatabase, secure: Se
         }
     } }
     suspend fun history(cid: String, before: Long? = null): Boolean = withContext(Dispatchers.IO) {
-        val result = api.json("/api/v1/conversations/$cid/messages" + (before?.let { "?before=$it" } ?: ""))
+        purge()
+        val result = api.json("/api/v1/conversations/$cid/messages?after_time=${cutoff()}" + (before?.let { "&before=$it" } ?: ""))
         db.runInTransaction {
             val messages = result.getJSONArray("messages")
             for (i in 0 until messages.length()) storeMessage(messages.getJSONObject(i))
@@ -129,6 +220,7 @@ class Repository(private val context: Context, val db: TouchDatabase, secure: Se
         id
     }
     suspend fun retry(id: String) = withContext(Dispatchers.IO) {
+        purge()
         val item = cache.pendingItems().firstOrNull { it.id == id } ?: return@withContext
         val result = api.json("/api/v1/conversations/${item.conversationId}/messages", "POST", JSONObject(item.body))
         db.runInTransaction { storeMessage(result) }
@@ -178,32 +270,49 @@ class Repository(private val context: Context, val db: TouchDatabase, secure: Se
         val multipart = MultipartBody.Builder().setType(MultipartBody.FORM).addFormDataPart("file", name, body).build()
         val result = api.response("/api/v1/files?kind=$kind", "POST", multipart).use { JSONObject(it.body!!.string()) }
         val item = FileItem.parse(result)
+        result.put("local_created_at", System.currentTimeMillis() / 1000)
         cache.put(TouchDatabase.Item("attachment", item.id, result.toString()))
         item
     }
-    suspend fun download(item: FileItem, onProgress: (Float) -> Unit): File = withContext(Dispatchers.IO) {
-        val folder = File(context.cacheDir, "attachments").apply { mkdirs() }
-        val target = File(folder, item.id)
-        if (target.exists() && target.length() == item.size && sha256(target) == item.sha256) return@withContext target
-        val partial = File(folder, "${item.id}.part")
+    suspend fun download(message: ChatMessage, onProgress: (Float) -> Unit): EncryptedAttachment = withContext(Dispatchers.IO) {
+        purge()
+        val item = message.file ?: error("附件不存在")
+        val target = attachment(message)
+        target.checkAccess()
+        if (target.encryptedFile.exists()) {
+            val valid = runCatching { target.input().use { input ->
+                val digest = MessageDigest.getInstance("SHA-256")
+                val buffer = ByteArray(65536); var size = 0L
+                while (true) { val n = input.read(buffer); if (n < 0) break; size += n; digest.update(buffer, 0, n) }
+                size == item.size && digest.digest().joinToString("") { "%02x".format(it) } == item.sha256
+            } }.getOrDefault(false)
+            if (valid) return@withContext target
+            check(target.encryptedFile.delete())
+        }
+        val partial = File(files.folder, "${item.id}.part")
+        var count = 0L
+        val digest = MessageDigest.getInstance("SHA-256")
         try {
-            api.response("/api/v1/files/${item.id}").use { response ->
-                response.body!!.byteStream().use { input -> partial.outputStream().use { output ->
+            target.checkAccess()
+            api.response("/api/v1/files/${item.id}?after_time=${cutoff()}").use { response ->
+                response.body!!.byteStream().use { input -> target.encryptTo(partial).use { output ->
                     val buffer = ByteArray(65536)
-                    var count = 0L
                     while (true) {
                         currentCoroutineContext().ensureActive()
+                        target.checkAccess()
                         val n = input.read(buffer)
                         if (n < 0) break
                         count += n
                         require(count <= item.size) { "文件大小异常" }
                         output.write(buffer, 0, n)
+                        digest.update(buffer, 0, n)
                         onProgress(count.toFloat() / item.size)
                     }
                 } }
             }
-            require(partial.length() == item.size && sha256(partial) == item.sha256) { "文件校验失败" }
-            check(partial.renameTo(target)) { "无法保存文件" }
+            require(count == item.size && digest.digest().joinToString("") { "%02x".format(it) } == item.sha256) { "文件校验失败" }
+            target.checkAccess()
+            check(partial.renameTo(target.encryptedFile)) { "无法保存文件" }
             target
         } finally { partial.delete() }
     }

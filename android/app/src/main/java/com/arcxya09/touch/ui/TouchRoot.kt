@@ -15,7 +15,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -36,7 +35,8 @@ import java.util.Locale
     TouchTheme {
         Surface(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
-                if (!vm.mayShowChat || vm.screen == "timer") TimerScreen(vm, activity)
+                if (vm.storageError && !vm.privacy) Text("本机加密数据暂时无法读取，已停止访问。请重新启动应用；原有数据不会自动清空。", Modifier.padding(32.dp))
+                else if (!vm.mayShowChat || vm.screen == "timer") TimerScreen(vm, activity)
                 else if (vm.user == null) LoginScreen(vm)
                 else if (vm.user!!.mustChange) PasswordScreen(vm, true)
                 else when (vm.screen) {
@@ -105,7 +105,7 @@ import java.util.Locale
 }
 
 @Composable private fun LoginScreen(vm: AppViewModel) {
-    var username by rememberSaveable { mutableStateOf("") }
+    var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(28.dp), verticalArrangement = Arrangement.Center) {
         Text("TOUCH", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
@@ -170,7 +170,7 @@ import java.util.Locale
 }
 
 @Composable private fun ContactsScreen(vm: AppViewModel) {
-    var query by rememberSaveable { mutableStateOf("") }
+    var query by remember { mutableStateOf("") }
     var remove by remember { mutableStateOf<Person?>(null) }
     Column(Modifier.fillMaxSize()) {
         Header("联系人", { vm.screen = "home" }); Busy(vm)
@@ -218,7 +218,8 @@ import java.util.Locale
 
 @Composable private fun ChatScreen(vm: AppViewModel, activity: MainActivity) {
     val conversation = vm.conversations.firstOrNull { it.id == vm.conversationId }
-    var draft by rememberSaveable(vm.conversationId) { mutableStateOf("") }
+    // Chat text must never be serialized into Android's plaintext saved-instance state.
+    var draft by remember(vm.conversationId) { mutableStateOf("") }
     var clear by remember { mutableStateOf(false) }
     val scroll = rememberLazyListState()
     val lastId = vm.messages.lastOrNull()?.id
@@ -250,7 +251,7 @@ import java.util.Locale
     val own = message.senderId == vm.user?.id
     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (own) Alignment.End else Alignment.Start) {
         Surface(shape = RoundedCornerShape(18.dp), color = if (own) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-            modifier = Modifier.widthIn(max = 310.dp).then(if (message.file != null && !message.pending) Modifier.clickable(enabled = !vm.busy) { vm.openFile(message.file) } else Modifier)) {
+            modifier = Modifier.widthIn(max = 310.dp).then(if (message.file != null && !message.pending) Modifier.clickable(enabled = !vm.busy) { vm.openFile(message) } else Modifier)) {
             Column(Modifier.padding(14.dp)) {
                 if (message.kind == "text") Text(message.text)
                 else {
@@ -273,11 +274,18 @@ import java.util.Locale
     var passwordDialog by remember { mutableStateOf<String?>(null) }
     var setup by remember { mutableStateOf(false) }
     var logout by remember { mutableStateOf(false) }
+    var retentionDialog by remember { mutableStateOf(false) }
+    var hours by remember(vm.retentionSeconds) { mutableStateOf((vm.retentionSeconds / 3600).toString()) }
     Column(Modifier.fillMaxSize()) {
         Header("设置", { vm.screen = "home" }); Busy(vm)
         Column(Modifier.verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
             Text(vm.user?.name.orEmpty(), style = MaterialTheme.typography.headlineSmall)
             Text("@${vm.user?.username}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            HorizontalDivider()
+            Text("本地定时销毁", style = MaterialTheme.typography.titleMedium)
+            Text("保留最近 ${vm.retentionSeconds / 3600} 小时。过期消息、待发送内容和附件会从本机清理，且不再拉取。服务器及其他账号不受影响。")
+            OutlinedButton(onClick = { retentionDialog = true }) { Text("设置保留时间") }
+            Text("数据库和附件均加密保存，密钥由 Android Keystore 保护。关机、强行停止或系统限制后台时，清理会延后；再次打开前先清理。", style = MaterialTheme.typography.bodySmall)
             HorizontalDivider()
             Text("隐私模式", style = MaterialTheme.typography.titleMedium)
             Text(if (vm.privacy) "已开启。离开前台后立即回到番茄钟。" else "开启后，需在番茄钟上绘制隐藏图案才能进入聊天。", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -305,6 +313,19 @@ import java.util.Locale
             }, enabled = !vm.busy && password.isNotBlank()) { Text("确认") } }, dismissButton = { TextButton(onClick = { passwordDialog = null }) { Text("取消") } })
     }
     if (setup) PatternSetup({ setup = false }) { pattern -> setup = false; vm.setPrivacy(pattern) }
+    if (retentionDialog) AlertDialog(onDismissRequest = { retentionDialog = false }, title = { Text("本机保留时间") },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("24 小时" to 24, "7 天" to 168, "30 天" to 720).forEach { (label, value) ->
+                    TextButton(onClick = { hours = value.toString() }) { Text(label) }
+                }
+            }
+            OutlinedTextField(hours, { hours = it.filter(Char::isDigit).take(4) }, label = { Text("小时（1–8760）") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
+            Text("按消息发送时间计算。缩短后立即清理；延长也不会恢复已销毁的历史。本机截止时间在退出账号后保留，清除应用数据或重装会重置。")
+        } }, confirmButton = { TextButton(onClick = { vm.setRetention(hours.toLong()); retentionDialog = false },
+            enabled = !vm.busy && hours.toLongOrNull()?.let { it in 1..8760 } == true) { Text("确认并应用") } },
+        dismissButton = { TextButton(onClick = { retentionDialog = false }) { Text("取消") } })
     if (logout) Confirm("退出账号", "清理本机聊天缓存和凭证，服务器记录保留。隐私模式设置保留。", { logout = false }) { logout = false; vm.logout() }
 }
 

@@ -2,7 +2,6 @@ package com.arcxya09.touch
 
 import android.content.Context
 import android.content.Intent
-import android.database.sqlite.SQLiteDatabase
 import android.graphics.Point
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
@@ -22,16 +21,11 @@ class UpgradeVerifyTest {
         assumeTrue(InstrumentationRegistry.getArguments().getString("upgradeProbe") == "verify")
         val context = ApplicationProvider.getApplicationContext<Context>()
         val probe = JSONObject(File(context.filesDir, "upgrade-probe.json").readText())
-        assertEquals(2L, context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode)
+        assertEquals(3L, context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode)
         val encrypted = File(context.filesDir, "datastore/touch_secure.preferences_pb").readBytes()
         val hash = MessageDigest.getInstance("SHA-256").digest(encrypted).joinToString("") { "%02x".format(it) }
         assertEquals(probe.getString("secure"), hash)
         assertTrue(File(context.filesDir, "privacy.enabled").exists())
-        SQLiteDatabase.openDatabase(context.getDatabasePath("touch.db").path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
-            db.rawQuery("SELECT json FROM items WHERE kind='meta' AND id='owner'", null).use { assertTrue(it.moveToFirst()); assertEquals(probe.getString("user"), it.getString(0)) }
-            db.rawQuery("SELECT json FROM items WHERE kind='meta' AND id='cursor'", null).use { assertTrue(it.moveToFirst()); assertEquals(probe.getString("cursor"), it.getString(0)) }
-            db.rawQuery("SELECT count(*) FROM items WHERE kind='message'", null).use { assertTrue(it.moveToFirst()); assertEquals(probe.getInt("messages"), it.getInt(0)) }
-        }
         val timer = context.getSharedPreferences("pomodoro", Context.MODE_PRIVATE)
         assertEquals(probe.getLong("wallEnd"), timer.getLong("wallEnd", 0))
         assertTrue(timer.getBoolean("running", false))
@@ -47,5 +41,10 @@ class UpgradeVerifyTest {
         fun point(column: Int, row: Int) = Point((left + (column + 0.5f) * width / 3).toInt(), (top + (row + 0.5f) * width / 3).toInt())
         device.swipe(arrayOf(point(0, 0), point(1, 0), point(2, 0), point(2, 1)), 35)
         assertTrue(device.wait(Until.hasObject(By.text("验收设备B")), 15000))
+        val database = context.getDatabasePath("touch.db").readBytes()
+        assertFalse(database.take(16).toByteArray().contentEquals("SQLite format 3\u0000".toByteArray()))
+        assertFalse(database.toString(Charsets.ISO_8859_1).contains(probe.getString("user")))
+        device.findObject(By.text("验收设备B")).click()
+        assertTrue(device.wait(Until.hasObject(By.text("生产联调：你好，Touch")), 15000))
     }
 }

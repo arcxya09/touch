@@ -33,8 +33,8 @@ class LiveChatInstrumentedTest {
         val rows = app.repository.messages(cid)
         assertTrue(rows.any { it.text == "生产联调：你好，Touch" })
         for (message in rows.filter { it.file != null }) {
-            val file = app.repository.download(message.file!!) { }
-            assertEquals(message.file!!.size, file.length())
+            val file = app.repository.download(message) { }
+            assertEquals(message.file!!.size, file.input().use { it.readBytes().size.toLong() })
         }
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             lateinit var model: AppViewModel

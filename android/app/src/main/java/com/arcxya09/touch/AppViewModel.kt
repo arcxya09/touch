@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.arcxya09.touch.data.*
+import com.arcxya09.touch.data.Retention
 import com.arcxya09.touch.security.Pattern
 import com.arcxya09.touch.timer.Pomodoro
 import com.arcxya09.touch.timer.TimerState
@@ -44,7 +45,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     var transfer by mutableStateOf<Float?>(null); private set
     var connected by mutableStateOf(false); private set
     var foundPerson by mutableStateOf<Person?>(null); private set
-    var preview by mutableStateOf<Pair<FileItem, File>?>(null); private set
+    var preview by mutableStateOf<Pair<FileItem, EncryptedAttachment>?>(null); private set
+    var retentionSeconds by mutableStateOf(Retention.DEFAULT_SECONDS); private set
+    var storageError by mutableStateOf(false); private set
+    private var cacheReady by mutableStateOf(false)
     var pendingSelection by mutableStateOf<Pair<Uri, String>?>(null)
     var timer by mutableStateOf(pomodoro.state()); private set
     var update by mutableStateOf<UpdateManifest?>(null)
@@ -52,7 +56,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     var updateProgress by mutableStateOf<Float?>(null); private set
     var showUpdate by mutableStateOf(false)
     var updater: Updater? = null
-    val mayShowChat get() = initialized && (!privacy || !locked)
+    val mayShowChat get() = initialized && cacheReady && !storageError && (!privacy || !locked)
 
     init {
         // A timer that expired while this process was absent must not ring on reopening.
@@ -63,26 +67,46 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 privacy = marker.exists() || config?.optBoolean("enabled") == true
                 pattern = config?.optString("pattern").orEmpty()
             }.onFailure { privacy = true }
-            repository.initialize()
-            user = repository.api.user
-            reloadLocal()
-            locked = privacy
-            initialized = true
-            if (foreground && mayShowChat) startForegroundWork()
+            try {
+                repository.initialize()
+                retentionSeconds = withContext(Dispatchers.IO) { repository.retention.seconds }
+                user = repository.api.user
+                reloadLocal()
+                locked = privacy; cacheReady = true
+                initialized = true
+                if (foreground && mayShowChat) startForegroundWork()
+            } catch (_: Exception) { storageError = true }
         }
         viewModelScope.launch {
             while (isActive) {
                 val state = pomodoro.state()
                 if (state.running && state.remainingMs == 0L) pomodoro.finish(true)
                 timer = pomodoro.state()
+                if (initialized && foreground && !storageError) {
+                    try {
+                        if (repository.purge()) reloadLocal(markRead = false)
+                        if (preview?.second?.let { withContext(Dispatchers.IO) { !it.valid() } } == true) {
+                            preview = null; if (screen == "preview") screen = "chat"
+                        }
+                    } catch (_: Exception) { storageError = true; cacheReady = false; preview = null; messages = emptyList(); conversations = emptyList() }
+                }
                 delay(1000)
             }
         }
     }
 
-    fun resume() { foreground = true; if (mayShowChat) startForegroundWork() }
+    fun resume() {
+        foreground = true
+        if (!initialized || storageError) return
+        cacheReady = false
+        viewModelScope.launch {
+            try { repository.purge(); reloadLocal(markRead = false); cacheReady = true; if (foreground && mayShowChat) startForegroundWork() }
+            catch (_: Exception) { storageError = true }
+        }
+    }
     fun background() {
         foreground = false
+        cacheReady = false
         if (privacy) locked = true
         showUpdate = false
         syncJob?.cancel(); work?.cancel(); updateJob?.cancel()
@@ -94,6 +118,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun hide() {
         background()
         foreground = true
+        cacheReady = true
         locked = true
         if (!privacy) screen = "timer"
     }
@@ -157,11 +182,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
-    private suspend fun reloadLocal() {
+    private suspend fun reloadLocal(markRead: Boolean = true) {
         user = repository.api.user
         conversations = repository.conversations(); contacts = repository.contacts()
         conversationId?.let { messages = repository.messages(it) }
-        if (foreground && mayShowChat && screen == "chat" && conversationId != null) {
+        if (markRead && foreground && mayShowChat && screen == "chat" && conversationId != null) {
             val newest = messages.filterNot { it.pending }.maxOfOrNull { it.seq } ?: 0
             if (newest > 0) runCatching { repository.read(conversationId!!, newest) }
         }
@@ -199,11 +224,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             repository.send(id, attachment = file); repository.sync()
         } finally { transfer = null; reloadLocal() }
     }
-    fun openFile(file: FileItem) = action {
+    fun openFile(message: ChatMessage) = action {
         transfer = 0f
         try {
-            val path = repository.download(file) { value -> viewModelScope.launch { transfer = value } }
-            if (mayShowChat && foreground) { preview = file to path; screen = "preview" }
+            val path = repository.download(message) { value -> viewModelScope.launch { transfer = value } }
+            if (mayShowChat && foreground) { preview = path.item to path; screen = "preview" }
         } finally { transfer = null }
     }
     fun cancelTransfer() { work?.cancel(); repository.api.closeConnections(); transfer = null; busy = false }
@@ -212,6 +237,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun timerReset() { pomodoro.reset(); timer = pomodoro.state() }
     fun timerChoose(rest: Boolean) { pomodoro.choose(rest); timer = pomodoro.state() }
     fun timerConfigure(focus: Int, rest: Int) { pomodoro.configure(focus, rest); timer = pomodoro.state() }
+    fun setRetention(hours: Long) = action {
+        require(hours in 1..8760) { "请输入 1 至 8760 小时" }
+        repository.configureRetention(hours * 3600)
+        retentionSeconds = hours * 3600
+        preview = null
+        reloadLocal(markRead = false)
+    }
 
     fun checkUpdate(manual: Boolean = true) {
         if (!foreground || !mayShowChat || updateJob?.isActive == true) return

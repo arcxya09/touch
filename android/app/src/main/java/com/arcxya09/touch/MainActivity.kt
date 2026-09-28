@@ -17,7 +17,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.core.content.FileProvider
+import com.arcxya09.touch.data.AttachmentProvider
+import com.arcxya09.touch.data.EncryptedAttachment
 import androidx.core.view.WindowCompat
 import com.arcxya09.touch.ui.TouchRoot
 import com.arcxya09.touch.update.Updater
@@ -26,7 +27,7 @@ import java.io.File
 class MainActivity : ComponentActivity() {
     private val model: AppViewModel by viewModels()
     private lateinit var cover: TextView
-    private var exportFile: File? = null
+    private var exportFile: EncryptedAttachment? = null
     private val imagePicker = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> selection(uri, "image") }
     private val documentPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> selection(uri, "file") }
     private val notifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -35,7 +36,11 @@ class MainActivity : ComponentActivity() {
         if (uri != null && source != null) {
             // The user explicitly authorized this export before entering the picker.
             Thread {
-                runCatching { contentResolver.openOutputStream(uri)?.use { output -> source.inputStream().use { it.copyTo(output) } } }
+                runCatching {
+                    source.checkAccess()
+                    contentResolver.openOutputStream(uri)?.use { output -> source.input().use { it.copyTo(output) } }
+                        ?: error("无法保存文件")
+                }
                     .onFailure { runOnUiThread { model.error = "文件保存失败" } }
             }.start()
         }
@@ -85,12 +90,13 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= 31 && !getSystemService(AlarmManager::class.java).canScheduleExactAlarms())
             startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$packageName")))
     }
-    fun openExternal(file: File, mime: String) {
-        val uri = FileProvider.getUriForFile(this, "$packageName.files", file)
+    fun openExternal(file: EncryptedAttachment, mime: String) {
         try {
+            val uri = AttachmentProvider.share("$packageName.attachments", file)
             startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime)
+                .apply { clipData = android.content.ClipData.newRawUri("附件", uri) }
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "选择查看应用"))
         } catch (_: Exception) { model.error = "未找到可打开此文件的应用，可选择保存文件" }
     }
-    fun export(file: File, name: String) { exportFile = file; exporter.launch(name) }
+    fun export(file: EncryptedAttachment, name: String) { exportFile = file; exporter.launch(name) }
 }
