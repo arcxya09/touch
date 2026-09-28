@@ -199,8 +199,20 @@ class Repository(private val context: Context, private val database: () -> Touch
     private fun clearMessages(cid: String, through: Long) {
         cache.items("message").forEach {
             val message = JSONObject(it.json)
-            if (message.getString("conversation_id") == cid && message.getLong("seq") <= through) cache.remove("message", it.id)
+            if (message.getString("conversation_id") == cid && message.getLong("seq") <= through) {
+                message.optJSONObject("attachment")?.getString("id")?.let { id -> cache.remove("attachment", id) }
+                cache.remove("message", it.id)
+            }
         }
+    }
+    private fun deleteLocalConversation(cid: String, through: Long, discardPending: Boolean = false) {
+        accessGeneration.incrementAndGet()
+        clearMessages(cid, through)
+        cache.pendingItems().filter { discardPending && it.conversationId == cid }.forEach {
+            JSONObject(it.body).optString("attachment_id").takeIf(String::isNotBlank)?.let { id -> cache.remove("attachment", id) }
+            cache.removePending(it.id)
+        }
+        cache.remove("conversation", cid)
     }
     suspend fun sync() = syncLock.withLock { withContext(Dispatchers.IO) {
         purge()
@@ -217,7 +229,8 @@ class Repository(private val context: Context, private val database: () -> Touch
                     val payload = event.getJSONObject("payload")
                     when (event.getString("kind")) {
                         "message" -> storeMessage(payload)
-                        "clear" -> clearMessages(payload.getString("conversation_id"), payload.getLong("seq"))
+                        "clear" -> if (payload.optBoolean("deleted")) deleteLocalConversation(payload.getString("conversation_id"), payload.getLong("seq"))
+                            else clearMessages(payload.getString("conversation_id"), payload.getLong("seq"))
                     }
                 }
                 cache.put(TouchDatabase.Item("meta", "cursor", result.getLong("cursor").toString()))
@@ -240,8 +253,9 @@ class Repository(private val context: Context, private val database: () -> Touch
                 cache.put(TouchDatabase.Item("contact", item.getString("id"), item.toString()))
             }
         }
+        purge()
     } }
-    suspend fun history(cid: String, before: Long? = null): Boolean = withContext(Dispatchers.IO) {
+    suspend fun history(cid: String, before: Long? = null): Boolean = syncLock.withLock { withContext(Dispatchers.IO) {
         purge()
         val result = api.json("/api/v1/conversations/$cid/messages?after_time=${cutoff()}" + (before?.let { "&before=$it" } ?: ""))
         db.runInTransaction {
@@ -249,7 +263,7 @@ class Repository(private val context: Context, private val database: () -> Touch
             for (i in 0 until messages.length()) storeMessage(messages.getJSONObject(i))
         }
         result.getBoolean("has_more")
-    }
+    } }
     suspend fun send(cid: String, text: String = "", attachment: FileItem? = null): String = withContext(Dispatchers.IO) {
         val id = UUID.randomUUID().toString()
         val body = JSONObject().put("client_id", id).put("kind", attachment?.kind ?: "text").put("text", text)
@@ -258,15 +272,19 @@ class Repository(private val context: Context, private val database: () -> Touch
         retry(id)
         id
     }
-    suspend fun retry(id: String) = withContext(Dispatchers.IO) {
+    suspend fun retry(id: String) = syncLock.withLock { withContext(Dispatchers.IO) {
         purge()
         val item = cache.pendingItems().firstOrNull { it.id == id } ?: return@withContext
         val result = api.json("/api/v1/conversations/${item.conversationId}/messages", "POST", JSONObject(item.body))
         db.runInTransaction { storeMessage(result) }
-    }
+    } }
     suspend fun discard(id: String) = withContext(Dispatchers.IO) { cache.removePending(id) }
     suspend fun read(cid: String, seq: Long) { api.json("/api/v1/conversations/$cid/read", "POST", JSONObject().put("seq", seq)) }
-    suspend fun clear(cid: String) { api.json("/api/v1/conversations/$cid/clear", "POST"); sync() }
+    suspend fun deleteConversation(cid: String) = syncLock.withLock { withContext(Dispatchers.IO) {
+        val result = api.json("/api/v1/conversations/$cid", "DELETE")
+        db.runInTransaction { deleteLocalConversation(cid, result.getLong("clear_seq"), discardPending = true) }
+        purge()
+    } }
     suspend fun search(username: String): Person {
         val encoded = java.net.URLEncoder.encode(username.trim(), "UTF-8")
         return Person.parse(api.json("/api/v1/contacts/search?username=$encoded"))

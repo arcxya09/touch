@@ -66,15 +66,15 @@ class MainActivity : ComponentActivity() {
         if (intent.getBooleanExtra("timer", false)) { model.hide(); model.screen = "timer" }
     }
     override fun onPause() {
-        if (::cover.isInitialized && model.privacy) cover.visibility = View.VISIBLE
+        if (::cover.isInitialized && (model.privacy || model.needsPrivacySetup)) cover.visibility = View.VISIBLE
         model.background()
         super.onPause()
     }
     override fun onResume() { super.onResume(); model.resume() }
     fun renderedGate() {
-        if (model.privacy || !model.initialized) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        if (model.privacy || model.needsPrivacySetup || !model.initialized) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        if (Build.VERSION.SDK_INT >= 33) setRecentsScreenshotEnabled(!model.privacy)
+        if (Build.VERSION.SDK_INT >= 33) setRecentsScreenshotEnabled(!(model.privacy || model.needsPrivacySetup))
         if (::cover.isInitialized) cover.visibility = View.GONE
     }
     private fun selection(uri: Uri?, kind: String) {

@@ -58,7 +58,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     var updateProgress by mutableStateOf<Float?>(null); private set
     var showUpdate by mutableStateOf(false)
     var updater: Updater? = null
-    val mayShowChat get() = initialized && cacheReady && !storageError && (!privacy || !locked)
+    private var privacyChoiceMade = false
+    var needsPrivacySetup by mutableStateOf(false); private set
+    val mayShowChat get() = mayShowSession && !needsPrivacySetup
+    val mayShowSession get() = initialized && cacheReady && !storageError && (!privacy || !locked)
 
     init {
         // A timer that expired while this process was absent must not ring on reopening.
@@ -68,12 +71,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val config = app.secureStore.read("privacy")?.let(::JSONObject)
                 privacy = marker.exists() || config?.optBoolean("enabled") == true
                 pattern = config?.optString("pattern").orEmpty()
-            }.onFailure { privacy = true }
+                privacyChoiceMade = privacy || (config != null && !config.optBoolean("pending"))
+                needsPrivacySetup = config?.optBoolean("pending") == true
+            }.onFailure { privacy = true; privacyChoiceMade = true }
             try {
                 repository.initialize()
                 retentionEnabled = withContext(Dispatchers.IO) { repository.retention.enabled }
                 retentionSeconds = withContext(Dispatchers.IO) { repository.retention.seconds }
                 user = repository.api.user
+                // Preserve the chosen normal mode for already signed-in upgrades.
+                if (user != null && !privacyChoiceMade && !needsPrivacySetup) {
+                    app.secureStore.write("privacy", JSONObject().put("enabled", false).toString())
+                    privacyChoiceMade = true
+                }
                 reloadLocal()
                 locked = privacy; cacheReady = true
                 initialized = true
@@ -138,12 +148,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 .putLong("until", if (count >= 5) System.currentTimeMillis() + 30000 else 0).commit()
         }
     }
-    fun setPrivacy(newPattern: String) = action {
+    fun setPrivacy(newPattern: String) = action(allowSetup = true) {
         withContext(Dispatchers.IO) { marker.writeText("1") }
         app.secureStore.write("privacy", JSONObject().put("enabled", true).put("pattern", newPattern).toString())
+        privacyChoiceMade = true; needsPrivacySetup = false
         pattern = newPattern
         privacy = true; locked = true; screen = "home"; showUpdate = false
         syncJob?.cancel(); repository.stop()
+    }
+    fun skipPrivacySetup() = action(allowSetup = true) {
+        if (!needsPrivacySetup || user == null || user?.mustChange == true) return@action
+        app.secureStore.write("privacy", JSONObject().put("enabled", false).toString())
+        privacyChoiceMade = true; needsPrivacySetup = false
+        screen = "home"; startForegroundWork()
     }
     fun disablePrivacy(password: String) = action {
         repository.verifyPassword(password)
@@ -152,14 +169,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         privacy = false; locked = false; pattern = ""
     }
     fun verifyPrivacyPassword(password: String, success: () -> Unit) = action { repository.verifyPassword(password); success() }
-    fun login(name: String, password: String) = action {
+    fun login(name: String, password: String) = action(allowSetup = true) {
+        if (!privacyChoiceMade) {
+            // Persist before login: a process death must not bypass the choice.
+            app.secureStore.write("privacy", JSONObject().put("pending", true).toString())
+            needsPrivacySetup = true
+        }
         repository.login(name, password); user = repository.api.user
         screen = "home"; error = null; startForegroundWork()
     }
-    fun password(old: String, new: String) = action {
+    fun password(old: String, new: String) = action(allowSetup = true) {
         repository.updatePassword(old, new); user = repository.api.user; screen = "home"; startForegroundWork()
     }
-    fun logout() = action {
+    fun logout() = action(allowSetup = true) {
         syncJob?.cancel(); repository.logout(); user = null
         conversations = emptyList(); contacts = emptyList(); messages = emptyList(); conversationId = null; pendingAvatar = null; pendingSelection = null; preview = null
         screen = "home"; if (privacy) locked = true
@@ -219,7 +241,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun retry(id: String) = action { try { repository.retry(id); repository.sync() } finally { reloadLocal() } }
     fun discard(id: String) = action { repository.discard(id); reloadLocal() }
-    fun clearHistory() = action { conversationId?.let { repository.clear(it) }; reloadLocal() }
+    fun deleteConversation(id: String) = action {
+        repository.deleteConversation(id)
+        if (conversationId == id) {
+            conversationId = null; messages = emptyList(); preview = null; pendingSelection = null; hasMore = false
+        }
+        screen = "home"; reloadLocal()
+    }
     fun search(name: String) = action { foundPerson = null; foundPerson = repository.search(name) }
     fun request() = action { foundPerson?.let { repository.request(it) }; foundPerson = null; reloadLocal() }
     fun contactAction(person: Person, operation: String) = action { repository.contactAction(person.id, operation); reloadLocal() }
@@ -308,8 +336,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
     fun cancelUpdate() { updateJob?.cancel(); updater?.cancel(); updateProgress = null }
-    fun action(block: suspend () -> Unit) {
-        if (busy || !mayShowChat) return
+    fun action(allowSetup: Boolean = false, block: suspend () -> Unit) {
+        if (busy || !mayShowSession || (needsPrivacySetup && !allowSetup)) return
         work = viewModelScope.launch {
             busy = true; error = null
             try { block() } catch (e: Exception) {
@@ -327,6 +355,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 if (privacy) locked = true
             }
         }
-        if (visible && mayShowChat) error = e.message ?: "操作失败，请检查网络后重试"
+        if (visible && mayShowSession) error = e.message ?: "操作失败，请检查网络后重试"
     }
 }

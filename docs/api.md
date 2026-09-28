@@ -35,6 +35,7 @@
 - `GET /conversations/{id}/messages?before=<seq>&limit=50`：返回正序消息及 `has_more`；`before` 为不包含该位置的游标。
 - `POST /conversations/{id}/messages`：`client_id`（UUID）、`kind`（text/image/file）、`text`、可选 `attachment_id`。
 - `POST /conversations/{id}/read`：`seq`；本人已读位置只前进。
+- `DELETE /conversations/{id}`（1.0.4 起）：推进本人清理/已读位置并隐藏本人会话，返回 `clear_seq`。联系人关系和对方记录保留。`clear` 同步事件增加 `deleted: true`；新消息重新显示会话，历史分页/同步仍排除已删除消息。重复发送旧请求不会恢复会话。
 - `POST /conversations/{id}/clear`：将本人清理位置推进到当前最新消息。对方仍能读取；双方清理后物理回收消息。
 
 重试须复用原 `client_id` 和原请求体；同一个 ID 携带不同内容返回 409。附件仅可由上传者关联一次。附件上传完成不等于消息发送完成。

@@ -81,7 +81,8 @@ def conversation_json(db: Session, conversation: Conversation, user_id: str, aft
 
 def all_conversations(db: Session, user_id: str, after_time: int = 0):
     rows = db.scalars(select(Conversation).where(or_(Conversation.a == user_id, Conversation.b == user_id)))
-    result = [conversation_json(db, row, user_id, after_time) for row in rows]
+    result = [conversation_json(db, row, user_id, after_time) for row in rows
+              if not (row.a_hidden if row.a == user_id else row.b_hidden)]
     return sorted(result, key=lambda c: (c["last_message"] or {}).get("created_at", 0), reverse=True)
 
 

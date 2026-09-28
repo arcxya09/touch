@@ -307,6 +307,8 @@ def send(conversation_id: UUID, body: SendMessage, user: User = Depends(ready_us
         if (previous.conversation_id != conversation.id or previous.kind != body.kind or previous.text != body.text
                 or previous.attachment_id != (str(body.attachment_id) if body.attachment_id else None)):
             raise HTTPException(409, "请求标识已被其他内容使用")
+        if previous.seq <= visible_after(conversation, user.id):
+            raise HTTPException(409, "该消息已从本人历史删除，不能重新发送")
         return message_json(db, previous)
     if db.get(SendReceipt, (user.id, str(body.client_id))):
         raise HTTPException(409, "该发送请求已完成，消息已清理，请移除本地待发送项")
@@ -323,6 +325,7 @@ def send(conversation_id: UUID, body: SendMessage, user: User = Depends(ready_us
             raise HTTPException(400, "附件不可用")
         if db.scalar(select(Message.id).where(Message.attachment_id == attachment.id)):
             raise HTTPException(409, "附件已关联消息")
+    conversation.a_hidden = conversation.b_hidden = False
     conversation.next_seq += 1
     message = Message(conversation_id=conversation.id, sender_id=user.id, client_id=str(body.client_id),
                       seq=conversation.next_seq, kind=body.kind, text=body.text,
@@ -366,6 +369,23 @@ def clear(conversation_id: UUID, user: User = Depends(ready_user), db: Session =
     clear_to = min(conversation.a_clear, conversation.b_clear)
     db.execute(delete(Message).where(Message.conversation_id == conversation.id, Message.seq <= clear_to))
     emit(db, [user.id], "clear", {"conversation_id": conversation.id, "seq": conversation.next_seq})
+    db.commit()
+    return {"ok": True, "clear_seq": conversation.next_seq}
+
+
+@router.delete("/conversations/{conversation_id}")
+def delete_conversation(conversation_id: UUID, user: User = Depends(ready_user), db: Session = Depends(get_db)):
+    db.scalar(select(User).where(User.id == user.id).with_for_update())
+    conversation = conversation_for(db, str(conversation_id), user.id, lock=True)
+    side = "a" if user.id == conversation.a else "b"
+    setattr(conversation, side + "_hidden", True)
+    setattr(conversation, side + "_clear", conversation.next_seq)
+    setattr(conversation, side + "_read", conversation.next_seq)
+    clear_to = min(conversation.a_clear, conversation.b_clear)
+    db.execute(delete(Message).where(Message.conversation_id == conversation.id, Message.seq <= clear_to))
+    # Keep clear events compatible with older clients.
+    emit(db, [user.id], "clear", {"conversation_id": conversation.id, "seq": conversation.next_seq,
+                                 "deleted": True})
     db.commit()
     return {"ok": True, "clear_seq": conversation.next_seq}
 

@@ -75,6 +75,8 @@ class Conversation(Base):
     next_seq: Mapped[int] = mapped_column(BigInteger, default=0)
     a_read: Mapped[int] = mapped_column(BigInteger, default=0)
     b_read: Mapped[int] = mapped_column(BigInteger, default=0)
+    a_hidden: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    b_hidden: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     a_clear: Mapped[int] = mapped_column(BigInteger, default=0)
     b_clear: Mapped[int] = mapped_column(BigInteger, default=0)
 

@@ -46,9 +46,10 @@ import java.util.Locale
         Surface(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
                 if (vm.storageError && !vm.privacy) Text("本机加密数据暂时无法读取，已停止访问。请重新启动应用；原有数据不会自动清空。", Modifier.padding(32.dp))
-                else if (!vm.mayShowChat || vm.screen == "timer") TimerScreen(vm, activity)
+                else if (!vm.mayShowSession || vm.screen == "timer") TimerScreen(vm, activity)
                 else if (vm.user == null) LoginScreen(vm)
                 else if (vm.user!!.mustChange) PasswordScreen(vm, true)
+                else if (vm.needsPrivacySetup) PrivacyWelcome(vm)
                 else when (vm.screen) {
                     "chat" -> ChatScreen(vm, activity)
                     "contacts" -> ContactsScreen(vm)
@@ -65,29 +66,29 @@ import java.util.Locale
             vm.screen = if (vm.screen == "preview") "chat" else "home"
         }
         BackHandler(enabled = vm.privacy && vm.mayShowChat && vm.screen == "home") { vm.hide() }
-        if (vm.mayShowChat) {
+        if (vm.mayShowSession) {
             vm.error?.let { message ->
                 AlertDialog(onDismissRequest = { vm.error = null }, title = { Text("提示") }, text = { Text(message) },
                     confirmButton = { TextButton(onClick = { vm.error = null }) { Text("知道了") } })
             }
-            if (vm.pendingAvatar != null && vm.user != null && !vm.user!!.mustChange) {
+            if (vm.mayShowChat && vm.pendingAvatar != null && vm.user != null && !vm.user!!.mustChange) {
                 AlertDialog(onDismissRequest = { vm.pendingAvatar = null }, title = { Text("更换头像") },
                     text = { Text("将刚刚选择的图片设为头像？头像会裁剪为方形，并显示给其他用户。") },
                     confirmButton = { TextButton(onClick = vm::uploadAvatar, enabled = !vm.busy) { Text("上传头像") } },
                     dismissButton = { TextButton(onClick = { vm.pendingAvatar = null }) { Text("取消") } })
             }
-            if (vm.pendingSelection != null && vm.user != null && !vm.user!!.mustChange) {
+            if (vm.mayShowChat && vm.pendingSelection != null && vm.user != null && !vm.user!!.mustChange) {
                 AlertDialog(onDismissRequest = { vm.pendingSelection = null }, title = { Text("发送附件") },
                     text = { Text("发送刚刚选择的${if (vm.pendingSelection!!.second == "image") "图片" else "文件"}？") },
                     confirmButton = { TextButton(onClick = vm::sendSelection, enabled = !vm.busy) { Text("发送") } },
                     dismissButton = { TextButton(onClick = { vm.pendingSelection = null }) { Text("取消") } })
             }
-            if (vm.transfer != null) {
+            if (vm.mayShowChat && vm.transfer != null) {
                 AlertDialog(onDismissRequest = {}, title = { Text("正在传输") }, text = {
                     Column { LinearProgressIndicator(progress = { vm.transfer ?: 0f }, modifier = Modifier.fillMaxWidth()); Text("${((vm.transfer ?: 0f) * 100).toInt()}%") }
                 }, confirmButton = { TextButton(onClick = vm::cancelTransfer) { Text("取消传输") } })
             }
-            if (vm.showUpdate && vm.update != null) {
+            if (vm.mayShowChat && vm.showUpdate && vm.update != null) {
                 val update = vm.update!!
                 AlertDialog(onDismissRequest = { if (vm.updateProgress == null) vm.showUpdate = false }, title = { Text("Touch ${update.versionName}") },
                     text = { Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
@@ -153,7 +154,22 @@ import java.util.Locale
     }
 }
 
+@Composable private fun PrivacyWelcome(vm: AppViewModel) {
+    var setup by remember { mutableStateOf(true) }
+    BackHandler { setup = false }
+    Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center) {
+        Text("设置隐私模式", style = MaterialTheme.typography.headlineMedium)
+        Text("默认以番茄钟作为入口。设置并试用手势后，只有绘制正确图案才能进入。", Modifier.padding(vertical = 24.dp))
+        Button(onClick = { setup = true }, enabled = !vm.busy) { Text("设置解锁图案") }
+        TextButton(onClick = vm::skipPrivacySetup, enabled = !vm.busy) { Text("跳过设置，使用正常模式") }
+        Busy(vm)
+    }
+    if (setup && !vm.busy) PatternSetup({ setup = false }) { pattern -> setup = false; vm.setPrivacy(pattern) }
+}
+
 @Composable private fun HomeScreen(vm: AppViewModel) {
+    var deleting by remember { mutableStateOf<Conversation?>(null) }
+    deleting?.let { item -> DeleteConversationConfirm({ deleting = null }) { vm.deleteConversation(item.id); deleting = null } }
     Column(Modifier.fillMaxSize()) {
         Header("消息") {
             IconButton(onClick = { vm.screen = "contacts" }) { Icon(Icons.Outlined.PersonAdd, "联系人") }
@@ -174,6 +190,7 @@ import java.util.Locale
                                 maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         if (conversation.unread > 0) Badge { Text(conversation.unread.coerceAtMost(99).toString()) }
+                        IconButton(onClick = { deleting = conversation }, enabled = !vm.busy) { Icon(Icons.Outlined.DeleteOutline, "删除与${conversation.peer.name}的会话") }
                     }
                 }
             }
@@ -264,6 +281,7 @@ import java.util.Locale
 
 @Composable private fun ChatScreen(vm: AppViewModel, activity: MainActivity) {
     val conversation = vm.conversations.firstOrNull { it.id == vm.conversationId }
+    val peer = conversation?.peer ?: vm.contacts.firstOrNull { it.conversationId == vm.conversationId }?.peer
     // Chat text must never be serialized into Android's plaintext saved-instance state.
     var draft by remember(vm.conversationId) { mutableStateOf("") }
     var clear by remember { mutableStateOf(false) }
@@ -277,9 +295,9 @@ import java.util.Locale
         }.distinctUntilChanged().collect { vm.markVisibleRead(it) }
     }
     Column(Modifier.fillMaxSize()) {
-        Header(conversation?.peer?.name ?: "聊天", { vm.screen = "home" }) {
-            conversation?.peer?.let { Avatar(it, vm) }
-            IconButton(onClick = { clear = true }) { Icon(Icons.Outlined.DeleteOutline, "清空本人历史") }
+        Header(peer?.name ?: "聊天", { vm.screen = "home" }) {
+            peer?.let { Avatar(it, vm) }
+            IconButton(onClick = { clear = true }, enabled = !vm.busy) { Icon(Icons.Outlined.DeleteOutline, "删除会话") }
             IconButton(onClick = vm::hide) { Icon(Icons.Outlined.Lock, "隐藏聊天") }
         }
         Busy(vm)
@@ -297,7 +315,7 @@ import java.util.Locale
             IconButton(onClick = { vm.send(draft) { draft = "" } }, enabled = draft.isNotBlank() && !vm.busy) { Icon(Icons.Outlined.Send, "发送") }
         }
     }
-    if (clear) Confirm("清空本人历史", "仅清理你可见的服务器历史，对方仍可查看。这项操作无法撤销。", { clear = false }) { vm.clearHistory(); clear = false }
+    if (clear) DeleteConversationConfirm({ clear = false }) { vm.conversationId?.let(vm::deleteConversation); clear = false }
 }
 
 @Composable private fun MessageBubble(message: ChatMessage, vm: AppViewModel) {
@@ -415,7 +433,7 @@ import java.util.Locale
             Text(hint)
             Box(Modifier.fillMaxWidth().aspectRatio(1f), contentAlignment = Alignment.Center) {
                 if (stage == 2) Text("25:00", style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                PatternPad(Modifier.fillMaxSize(), stage < 2) { points ->
+                PatternPad(Modifier.fillMaxSize().testTag("setup-pattern"), stage < 2) { points ->
                     when {
                         !Pattern.valid(points) -> hint = "请至少连接 4 个不同点"
                         stage == 0 -> { pattern = Pattern.encode(points); stage = 1; hint = "按相同顺序再次绘制" }
@@ -427,6 +445,10 @@ import java.util.Locale
             }
             Text("计时盘的上、中、下各有三个点位。跨过中点时会自动选中。", style = MaterialTheme.typography.bodySmall)
         } }, confirmButton = {}, dismissButton = { TextButton(onClick = dismiss) { Text("取消") } })
+}
+
+@Composable private fun DeleteConversationConfirm(dismiss: () -> Unit, confirm: () -> Unit) {
+    Confirm("删除会话", "删除你与此账号的全部历史及本机附件缓存，并从消息列表移除。对方记录和联系人关系保留；新的消息会重新显示会话，旧记录不会恢复。此操作无法撤销。", dismiss, confirm)
 }
 
 @Composable fun Confirm(title: String, text: String, dismiss: () -> Unit, confirm: () -> Unit) {
