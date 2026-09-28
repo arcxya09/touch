@@ -1,0 +1,8 @@
+[Unit]
+Description=Touch consistent daily backup
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/touch/ops
+ExecStart=/bin/sh /opt/touch/ops/backup.sh

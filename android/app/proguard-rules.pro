@@ -1,0 +1,2 @@
+-keep class com.arcxya09.touch.data.TouchDatabase_Impl { *; }
+-keepattributes Signature,InnerClasses,EnclosingMethod

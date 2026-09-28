@@ -1,0 +1,8 @@
+chat.worldofmy.uk {
+    request_body {
+        max_size 106MB
+    }
+    encode zstd gzip
+    header Strict-Transport-Security "max-age=31536000"
+    reverse_proxy 127.0.0.1:18080
+}

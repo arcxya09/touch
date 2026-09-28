@@ -60,4 +60,3 @@ Windows 中文目录出现 Gradle 测试进程类加载错误时，使用临时�
 参见 [部署说明](docs/deployment.md)、[发布与签名](docs/releases.md)、[接口约定](docs/api.md)、[验证记录](docs/verification.md)。
 
 签名密钥、账号密码及 `.env` 必须单独保管。丢失签名密钥将无法按当前方案对已安装 APK 覆盖升级。
-
