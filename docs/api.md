@@ -12,6 +12,15 @@
 
 401 时，`X-Auth-Reason: expired` 允许尝试刷新；其他 401 应清除本地凭证并重新登录。隐私模式下仍须先经过图案解锁。登录 Token 默认有效 30 分钟，刷新凭证 30 天；新设备登录撤销旧会话。
 
+## 个人资料与已读设置（1.0.3 起）
+
+- `PATCH /auth/profile`：`display_name`（1–64 字，不能全空格）、`bio`（最多 160 字）。只编辑自己，拒绝额外字段，不允许更改角色或账号名。
+- `POST /auth/avatar`：multipart 字段 `file`，图片最多 5 MiB、2000 万像素；服务端转为 512×512 JPEG 并移除元数据。`DELETE /auth/avatar` 移除头像。
+- `GET /profiles/{user_id}/avatar/{avatar_version}`：须登录且已完成首次改密，返回当前头像；旧版本地址返回 404，响应禁止缓存。用户 JSON 含 `bio`、可空 `avatar_version`。
+- `PATCH /auth/preferences`：`read_receipts_enabled` 布尔值，仅管理员可设置；普通用户返回 403。默认 false，只有自己的登录/刷新/资料响应返回此偏好。
+- `/conversations` 仅在请求者为管理员且开关开启时返回 `peer_read_seq`。普通用户及关闭开关的管理员均不返回此字段。`read` 同步提示不携带对方位置，客户端重新读取会话接口，避免关闭后从积压事件泄漏位置。
+- 后台 `/admin/profile` 编辑本人资料；`GET/POST /admin/users/{id}/profile` 管理用户昵称、简介和头像（不修改权限）；POST 须管理员会话和 CSRF。头像由鉴权的 `/admin/users/{id}/avatar` 返回。
+
 ## 联系人
 
 - `GET /contacts/search?username=<完整账号>`，不提供模糊搜索或用户目录。
@@ -43,6 +52,8 @@
 `GET /conversations`、`GET /conversations/{id}/messages`、`GET /sync`、`GET /files/{id}` 均接受可选 `after_time`（非负 Unix 秒，默认 0）。只返回 `created_at > after_time` 的消息及关联附件。摘要的最近消息和未读数也按此筛选；过期同步事件返回空 `noop` 并正常推进游标，历史分页的 `has_more` 只计算保留期内记录。未发送附件按上传时间筛选。
 
 该参数只限制当前请求返回的数据，不更新账号清理位置、不删除服务器数据，也不影响其他设备/账号。旧客户端省略参数时行为保持不变。Android 在加密的本机配置中保存每个账号只前进的截止时间，所有网络读取均携带截止时间，并在本地再次检查，防止请求期间到期的数据落库。延长时长、时钟回拨及同一安装中的重新登录均不会倒退截止时间；清除应用数据或重装会重置本机策略。
+
+1.0.3 起，定时销毁默认关闭，每次开启默认 1 小时。关闭时不推进截止时间，但继续携带此前已持久化的截止线，以防恢复已经销毁的记录。schema 1 的本地策略迁移为 schema 2，默认关闭并保留各账号截止线。
 
 这与 `POST /conversations/{id}/clear` 不同：后者是用户主动清空本人可见的服务器历史。本机定时销毁不会调用它。
 

@@ -1,6 +1,16 @@
 package com.arcxya09.touch.ui
 
 import androidx.activity.compose.BackHandler
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.shape.CircleShape
+import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -43,6 +53,7 @@ import java.util.Locale
                     "chat" -> ChatScreen(vm, activity)
                     "contacts" -> ContactsScreen(vm)
                     "settings" -> SettingsScreen(vm)
+                    "profile" -> ProfileScreen(vm, activity)
                     "password" -> PasswordScreen(vm, false)
                     "preview" -> PreviewScreen(vm, activity)
                     else -> HomeScreen(vm)
@@ -58,6 +69,12 @@ import java.util.Locale
             vm.error?.let { message ->
                 AlertDialog(onDismissRequest = { vm.error = null }, title = { Text("提示") }, text = { Text(message) },
                     confirmButton = { TextButton(onClick = { vm.error = null }) { Text("知道了") } })
+            }
+            if (vm.pendingAvatar != null && vm.user != null && !vm.user!!.mustChange) {
+                AlertDialog(onDismissRequest = { vm.pendingAvatar = null }, title = { Text("更换头像") },
+                    text = { Text("将刚刚选择的图片设为头像？头像会裁剪为方形，并显示给其他用户。") },
+                    confirmButton = { TextButton(onClick = vm::uploadAvatar, enabled = !vm.busy) { Text("上传头像") } },
+                    dismissButton = { TextButton(onClick = { vm.pendingAvatar = null }) { Text("取消") } })
             }
             if (vm.pendingSelection != null && vm.user != null && !vm.user!!.mustChange) {
                 AlertDialog(onDismissRequest = { vm.pendingSelection = null }, title = { Text("发送附件") },
@@ -150,7 +167,7 @@ import java.util.Locale
             items(vm.conversations, key = { it.id }) { conversation ->
                 Surface(Modifier.fillMaxWidth().clickable { vm.openConversation(conversation.id) }, shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)) {
                     Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Avatar(conversation.peer.name)
+                        Avatar(conversation.peer, vm)
                         Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
                             Text(conversation.peer.name, fontWeight = FontWeight.SemiBold)
                             Text(conversation.last?.let { if (it.kind == "text") it.text else if (it.kind == "image") "[图片]" else "[文件] ${it.file?.name.orEmpty()}" } ?: "开始聊天",
@@ -163,9 +180,37 @@ import java.util.Locale
         }
     }
 }
-@Composable private fun Avatar(name: String) {
+@Composable private fun Avatar(person: Person, vm: AppViewModel) {
+    val bitmap by produceState<android.graphics.Bitmap?>(null, person.id, person.avatarVersion, vm.user?.id) {
+        value = null
+        value = runCatching { vm.repository.avatarBytes(person)?.let { BitmapFactory.decodeByteArray(it, 0, it.size) } }.getOrNull()
+    }
     Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-        Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) { Text(name.take(1), style = MaterialTheme.typography.titleMedium) }
+        Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+            bitmap?.let { Image(it.asImageBitmap(), "${person.name}的头像", Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+                ?: Text(person.name.take(1), style = MaterialTheme.typography.titleMedium)
+        }
+    }
+}
+
+@Composable private fun ProfileScreen(vm: AppViewModel, activity: MainActivity) {
+    val person = vm.user ?: return
+    var name by remember(person.id) { mutableStateOf(person.name) }
+    var bio by remember(person.id) { mutableStateOf(person.bio) }
+    Column(Modifier.fillMaxSize()) {
+        Header("个人资料", { vm.screen = "settings" }); Busy(vm)
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Avatar(person, vm)
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(onClick = activity::chooseAvatar, enabled = !vm.busy) { Text("更换头像") }
+                if (person.avatarVersion != null) TextButton(onClick = vm::removeAvatar, enabled = !vm.busy) { Text("移除头像") }
+            }
+            Text("@${person.username} · 账号名不可修改", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedTextField(name, { name = it.take(64) }, Modifier.fillMaxWidth(), label = { Text("昵称") }, singleLine = true)
+            OutlinedTextField(bio, { bio = it.take(160) }, Modifier.fillMaxWidth(), label = { Text("个人简介") }, maxLines = 4)
+            Text("昵称、头像和简介会显示给其他用户。头像最大 5 MiB。", style = MaterialTheme.typography.bodySmall)
+            Button(onClick = { vm.saveProfile(name, bio) }, enabled = !vm.busy && name.isNotBlank()) { Text("保存资料") }
+        }
     }
 }
 
@@ -181,7 +226,8 @@ import java.util.Locale
         vm.foundPerson?.let { person ->
             Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) { Text(person.name); Text("@${person.username}", style = MaterialTheme.typography.bodySmall) }
+                    Avatar(person, vm)
+                    Column(Modifier.weight(1f).padding(start = 12.dp)) { Text(person.name); Text("@${person.username}", style = MaterialTheme.typography.bodySmall) }
                     TextButton(onClick = vm::request, enabled = !vm.busy) { Text(if (vm.user?.isAdmin == true) "直接添加" else "发送申请") }
                 }
             }
@@ -192,8 +238,8 @@ import java.util.Locale
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Avatar(contact.peer.name)
-                            Column(Modifier.weight(1f).padding(start = 12.dp)) { Text(contact.peer.name, fontWeight = FontWeight.SemiBold); Text("@${contact.peer.username}", style = MaterialTheme.typography.bodySmall) }
+                            Avatar(contact.peer, vm)
+                            Column(Modifier.weight(1f).padding(start = 12.dp)) { Text(contact.peer.name, fontWeight = FontWeight.SemiBold); Text("@${contact.peer.username}", style = MaterialTheme.typography.bodySmall); if (contact.peer.bio.isNotBlank()) Text(contact.peer.bio, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall) }
                         }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                             when {
@@ -224,8 +270,15 @@ import java.util.Locale
     val scroll = rememberLazyListState()
     val lastId = vm.messages.lastOrNull()?.id
     LaunchedEffect(lastId) { if (vm.messages.isNotEmpty()) scroll.animateScrollToItem(vm.messages.size) }
+    LaunchedEffect(vm.conversationId) {
+        snapshotFlow {
+            val visible = scroll.layoutInfo.visibleItemsInfo.map { it.key }.toSet()
+            vm.messages.filter { !it.pending && it.id in visible }.maxOfOrNull { it.seq } ?: 0L
+        }.distinctUntilChanged().collect { vm.markVisibleRead(it) }
+    }
     Column(Modifier.fillMaxSize()) {
         Header(conversation?.peer?.name ?: "聊天", { vm.screen = "home" }) {
+            conversation?.peer?.let { Avatar(it, vm) }
             IconButton(onClick = { clear = true }) { Icon(Icons.Outlined.DeleteOutline, "清空本人历史") }
             IconButton(onClick = vm::hide) { Icon(Icons.Outlined.Lock, "隐藏聊天") }
         }
@@ -265,8 +318,13 @@ import java.util.Locale
             Text("待发送", style = MaterialTheme.typography.labelSmall)
             TextButton(onClick = { vm.retry(message.id) }, enabled = !vm.busy) { Text("重试") }
             TextButton(onClick = { vm.discard(message.id) }, enabled = !vm.busy) { Text("删除") }
-        } else Text(SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date(message.createdAt * 1000)) + if (own) " · 已发送" else "",
-            Modifier.padding(horizontal = 4.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date(message.createdAt * 1000)) + if (own) " · 已发送" else "",
+                Modifier.padding(horizontal = 4.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            val read = vm.conversations.firstOrNull { it.id == message.conversationId }?.peerReadSeq ?: 0
+            if (own && vm.user?.isAdmin == true && vm.user?.readReceipts == true && message.seq <= read)
+                Box(Modifier.size(3.dp).background(Color.Gray, CircleShape).testTag("read-${message.id}").semantics { contentDescription = "对方已读" })
+        }
     }
 }
 
@@ -274,19 +332,35 @@ import java.util.Locale
     var passwordDialog by remember { mutableStateOf<String?>(null) }
     var setup by remember { mutableStateOf(false) }
     var logout by remember { mutableStateOf(false) }
+    var enableRetentionDialog by remember { mutableStateOf(false) }
     var retentionDialog by remember { mutableStateOf(false) }
     var hours by remember(vm.retentionSeconds) { mutableStateOf((vm.retentionSeconds / 3600).toString()) }
     Column(Modifier.fillMaxSize()) {
         Header("设置", { vm.screen = "home" }); Busy(vm)
         Column(Modifier.verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            vm.user?.let { Avatar(it, vm) }
+            TextButton(onClick = { vm.screen = "profile" }) { Text("编辑个人资料") }
             Text(vm.user?.name.orEmpty(), style = MaterialTheme.typography.headlineSmall)
             Text("@${vm.user?.username}", color = MaterialTheme.colorScheme.onSurfaceVariant)
             HorizontalDivider()
-            Text("本地定时销毁", style = MaterialTheme.typography.titleMedium)
-            Text("保留最近 ${vm.retentionSeconds / 3600} 小时。过期消息、待发送内容和附件会从本机清理，且不再拉取。服务器及其他账号不受影响。")
-            OutlinedButton(onClick = { retentionDialog = true }) { Text("设置保留时间") }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("本地定时销毁", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                Switch(checked = vm.retentionEnabled, onCheckedChange = { if (it) enableRetentionDialog = true else vm.enableRetention(false) }, enabled = !vm.busy,
+                    modifier = Modifier.semantics { contentDescription = "本地定时销毁开关" })
+            }
+            Text(if (vm.retentionEnabled) "保留最近 ${vm.retentionSeconds / 3600} 小时。过期消息、待发送内容和附件会从本机清理，且不再拉取。服务器及其他账号不受影响。" else "已关闭，不按时间清理本机记录。此前已销毁的记录仍不会重新拉取。开启时默认保留 1 小时。")
+            OutlinedButton(onClick = { retentionDialog = true }, enabled = vm.retentionEnabled && !vm.busy) { Text("设置保留时间") }
             Text("数据库和附件均加密保存，密钥由 Android Keystore 保护。关机、强行停止或系统限制后台时，清理会延后；再次打开前先清理。", style = MaterialTheme.typography.bodySmall)
             HorizontalDivider()
+            if (vm.user?.isAdmin == true) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("显示已读标识", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                    Switch(checked = vm.user?.readReceipts == true, onCheckedChange = vm::setReadReceipts, enabled = !vm.busy,
+                        modifier = Modifier.semantics { contentDescription = "显示已读标识开关" })
+                }
+                Text("仅管理员可用。开启后，已发送消息旁的灰色小点表示对方已读；没有小点表示未读。", style = MaterialTheme.typography.bodySmall)
+                HorizontalDivider()
+            }
             Text("隐私模式", style = MaterialTheme.typography.titleMedium)
             Text(if (vm.privacy) "已开启。离开前台后立即回到番茄钟。" else "开启后，需在番茄钟上绘制隐藏图案才能进入聊天。", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -313,10 +387,13 @@ import java.util.Locale
             }, enabled = !vm.busy && password.isNotBlank()) { Text("确认") } }, dismissButton = { TextButton(onClick = { passwordDialog = null }) { Text("取消") } })
     }
     if (setup) PatternSetup({ setup = false }) { pattern -> setup = false; vm.setPrivacy(pattern) }
+    if (enableRetentionDialog) Confirm("开启本地定时销毁", "默认仅保留最近 1 小时。更早的本机记录与附件将立即清理且不再拉取；服务器和其他账号不受影响。", { enableRetentionDialog = false }) {
+        enableRetentionDialog = false; vm.enableRetention(true)
+    }
     if (retentionDialog) AlertDialog(onDismissRequest = { retentionDialog = false }, title = { Text("本机保留时间") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("24 小时" to 24, "7 天" to 168, "30 天" to 720).forEach { (label, value) ->
+                listOf("1 小时" to 1, "24 小时" to 24, "7 天" to 168).forEach { (label, value) ->
                     TextButton(onClick = { hours = value.toString() }) { Text(label) }
                 }
             }

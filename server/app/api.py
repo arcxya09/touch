@@ -9,11 +9,13 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from PIL import Image, UnidentifiedImageError
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from .config import settings
+from .account_deletion import lock_accounts
+from .profiles import Profile, avatar_response, profile_changed, read_avatar, set_avatar
 from .database import get_db
 from .models import Attachment, Contact, Conversation, Message, MobileSession, SendReceipt, SyncEvent, User, now, uid
 from .security import current_user, digest, dummy_hash, limiter, password_hasher, ready_user, token, verify_password
@@ -67,7 +69,7 @@ def rotate_session(user: User, session: MobileSession):
     session.refresh_expires = now() + settings.refresh_seconds
     session.epoch = user.session_epoch
     return {"access_token": access, "refresh_token": refresh,
-            "expires_in": settings.access_seconds, "user": user_json(user)}
+            "expires_in": settings.access_seconds, "user": user_json(user, private=True)}
 
 
 @router.post("/auth/login")
@@ -108,7 +110,56 @@ def refresh(body: Refresh, db: Session = Depends(get_db)):
 
 @router.get("/auth/me")
 def me(user: User = Depends(current_user)):
-    return user_json(user)
+    return user_json(user, private=True)
+
+
+@router.patch("/auth/profile")
+def edit_profile(body: Profile, user: User = Depends(ready_user), db: Session = Depends(get_db)):
+    user = lock_accounts(db)[user.id]
+    user.display_name, user.bio = body.display_name, body.bio.strip()
+    profile_changed(db, user)
+    db.commit()
+    return user_json(user, private=True)
+
+
+@router.post("/auth/avatar")
+def upload_avatar(file: UploadFile = File(), user: User = Depends(ready_user), db: Session = Depends(get_db)):
+    limiter.check("avatar:" + user.id, 10, 60)
+    data = read_avatar(file)
+    user = lock_accounts(db)[user.id]
+    set_avatar(user, data)
+    profile_changed(db, user)
+    db.commit()
+    return user_json(user, private=True)
+
+
+@router.delete("/auth/avatar")
+def remove_avatar(user: User = Depends(ready_user), db: Session = Depends(get_db)):
+    user = lock_accounts(db)[user.id]
+    set_avatar(user, None)
+    profile_changed(db, user)
+    db.commit()
+    return user_json(user, private=True)
+
+
+@router.get("/profiles/{user_id}/avatar/{version}")
+def avatar(user_id: UUID, version: UUID, user: User = Depends(ready_user), db: Session = Depends(get_db)):
+    return avatar_response(db.get(User, str(user_id)), str(version))
+
+
+class Preferences(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    read_receipts_enabled: bool
+
+
+@router.patch("/auth/preferences")
+def preferences(body: Preferences, user: User = Depends(ready_user), db: Session = Depends(get_db)):
+    user = db.scalar(select(User).where(User.id == user.id).with_for_update().execution_options(populate_existing=True))
+    if not user.is_admin:
+        raise HTTPException(403, "仅管理员可设置已读标识")
+    user.read_receipts_enabled = body.read_receipts_enabled
+    db.commit()
+    return user_json(user, private=True)
 
 
 @router.post("/auth/verify-password")
@@ -129,7 +180,7 @@ def change_password(body: Password, user: User = Depends(current_user), db: Sess
     user.password_hash = password_hasher.hash(body.new_password)
     user.must_change_password = False
     db.commit()
-    return user_json(user)
+    return user_json(user, private=True)
 
 
 @router.post("/auth/logout")
@@ -287,13 +338,21 @@ def send(conversation_id: UUID, body: SendMessage, user: User = Depends(ready_us
 
 @router.post("/conversations/{conversation_id}/read")
 def read(conversation_id: UUID, body: ReadPosition, user: User = Depends(ready_user), db: Session = Depends(get_db)):
-    db.scalar(select(User).where(User.id == user.id).with_for_update())
+    initial = conversation_for(db, str(conversation_id), user.id)
+    db.scalars(select(User).where(User.id.in_([initial.a, initial.b])).order_by(User.id).with_for_update()
+               .execution_options(populate_existing=True)).all()
     conversation = conversation_for(db, str(conversation_id), user.id, lock=True)
     field = "a_read" if user.id == conversation.a else "b_read"
     new = max(getattr(conversation, field), min(body.seq, conversation.next_seq))
     if new != getattr(conversation, field):
         setattr(conversation, field, new)
-        emit(db, [user.id], "read", {"conversation_id": conversation.id, "seq": new})
+        # No peer cursor in the event payload. The conversations endpoint checks
+        # the viewer's current role and preference every time it returns a cursor.
+        peer = db.get(User, conversation.b if user.id == conversation.a else conversation.a)
+        recipients = [user.id]
+        if peer.active and peer.is_admin and peer.read_receipts_enabled:
+            recipients.append(peer.id)
+        emit(db, recipients, "read", {"conversation_id": conversation.id})
     db.commit()
     return {"ok": True}
 

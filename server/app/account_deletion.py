@@ -40,6 +40,8 @@ def delete_account(db, user):
     # fits the existing 32-character column. A reused name gets a new identity.
     user.username = "~" + urlsafe_b64encode(UUID(user.id).bytes).decode().rstrip("=")
     user.display_name = "已删除账号"
+    user.bio, user.avatar, user.avatar_version = "", None, None
+    user.read_receipts_enabled = False
     for model in (MobileSession, AdminSession, SyncEvent):
         db.execute(delete(model).where(model.user_id == user.id))
     db.execute(delete(Attachment).where(Attachment.owner_id == user.id,

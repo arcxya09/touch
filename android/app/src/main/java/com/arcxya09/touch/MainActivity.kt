@@ -29,6 +29,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var cover: TextView
     private var exportFile: EncryptedAttachment? = null
     private val imagePicker = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> selection(uri, "image") }
+    private val avatarPicker = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> model.pendingAvatar = uri }
     private val documentPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> selection(uri, "file") }
     private val notifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
     private val exporter = registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
@@ -81,6 +82,7 @@ class MainActivity : ComponentActivity() {
         runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
         model.pendingSelection = uri to kind
     }
+    fun chooseAvatar() = avatarPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
     fun chooseImage() = imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
     fun chooseDocument() = documentPicker.launch(arrayOf("*/*"))
     fun notificationPermission() {

@@ -42,7 +42,7 @@ app.include_router(admin.router)
 @app.middleware("http")
 async def response_headers(request, call_next):
     # Authenticate uploads before the multipart parser spools them to disk.
-    if request.method == "POST" and request.url.path == "/api/v1/files":
+    if request.method == "POST" and request.url.path in ("/api/v1/files", "/api/v1/auth/avatar"):
         header = request.headers.get("authorization", "")
         if not header.startswith("Bearer "):
             return JSONResponse({"detail": "请登录"}, 401)

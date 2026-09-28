@@ -46,6 +46,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     var connected by mutableStateOf(false); private set
     var foundPerson by mutableStateOf<Person?>(null); private set
     var preview by mutableStateOf<Pair<FileItem, EncryptedAttachment>?>(null); private set
+    var retentionEnabled by mutableStateOf(false); private set
+    var pendingAvatar by mutableStateOf<Uri?>(null)
     var retentionSeconds by mutableStateOf(Retention.DEFAULT_SECONDS); private set
     var storageError by mutableStateOf(false); private set
     private var cacheReady by mutableStateOf(false)
@@ -69,6 +71,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }.onFailure { privacy = true }
             try {
                 repository.initialize()
+                retentionEnabled = withContext(Dispatchers.IO) { repository.retention.enabled }
                 retentionSeconds = withContext(Dispatchers.IO) { repository.retention.seconds }
                 user = repository.api.user
                 reloadLocal()
@@ -84,7 +87,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 timer = pomodoro.state()
                 if (initialized && foreground && !storageError) {
                     try {
-                        if (repository.purge()) reloadLocal(markRead = false)
+                        if (repository.purge()) reloadLocal()
                         if (preview?.second?.let { withContext(Dispatchers.IO) { !it.valid() } } == true) {
                             preview = null; if (screen == "preview") screen = "chat"
                         }
@@ -100,7 +103,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (!initialized || storageError) return
         cacheReady = false
         viewModelScope.launch {
-            try { repository.purge(); reloadLocal(markRead = false); cacheReady = true; if (foreground && mayShowChat) startForegroundWork() }
+            try { repository.purge(); reloadLocal(); cacheReady = true; if (foreground && mayShowChat) startForegroundWork() }
             catch (_: Exception) { storageError = true }
         }
     }
@@ -158,7 +161,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun logout() = action {
         syncJob?.cancel(); repository.logout(); user = null
-        conversations = emptyList(); contacts = emptyList(); messages = emptyList(); conversationId = null
+        conversations = emptyList(); contacts = emptyList(); messages = emptyList(); conversationId = null; pendingAvatar = null; pendingSelection = null; preview = null
         screen = "home"; if (privacy) locked = true
     }
     private fun startForegroundWork() {
@@ -182,17 +185,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
-    private suspend fun reloadLocal(markRead: Boolean = true) {
+    private suspend fun reloadLocal() {
         user = repository.api.user
         conversations = repository.conversations(); contacts = repository.contacts()
         conversationId?.let { messages = repository.messages(it) }
-        if (markRead && foreground && mayShowChat && screen == "chat" && conversationId != null) {
-            val newest = messages.filterNot { it.pending }.maxOfOrNull { it.seq } ?: 0
-            if (newest > 0) runCatching { repository.read(conversationId!!, newest) }
+    }
+    private var reportedRead = 0L
+    fun markVisibleRead(seq: Long) {
+        val id = conversationId ?: return
+        if (!foreground || !mayShowChat || screen != "chat" || seq <= reportedRead) return
+        reportedRead = seq
+        viewModelScope.launch {
+            try { repository.read(id, seq) }
+            catch (_: Exception) { if (conversationId == id) reportedRead = 0 }
         }
     }
     fun openConversation(id: String) {
-        conversationId = id; screen = "chat"
+        conversationId = id; reportedRead = 0; screen = "chat"
         action {
             messages = repository.messages(id)
             hasMore = repository.history(id)
@@ -237,12 +246,33 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun timerReset() { pomodoro.reset(); timer = pomodoro.state() }
     fun timerChoose(rest: Boolean) { pomodoro.choose(rest); timer = pomodoro.state() }
     fun timerConfigure(focus: Int, rest: Int) { pomodoro.configure(focus, rest); timer = pomodoro.state() }
+    fun enableRetention(enabled: Boolean) = action {
+        repository.enableRetention(enabled)
+        retentionEnabled = repository.retention.enabled
+        retentionSeconds = repository.retention.seconds
+        preview = null
+        reloadLocal()
+    }
+    fun saveProfile(name: String, bio: String) = action {
+        repository.updateProfile(name, bio); user = repository.api.user
+        repository.sync(); reloadLocal(); if (mayShowChat) error = "个人资料已保存"
+    }
+    fun uploadAvatar() = action {
+        val uri = pendingAvatar ?: return@action
+        repository.uploadAvatar(uri); pendingAvatar = null; user = repository.api.user
+        repository.sync(); reloadLocal()
+    }
+    fun removeAvatar() = action { repository.removeAvatar(); user = repository.api.user; repository.sync(); reloadLocal() }
+    fun setReadReceipts(enabled: Boolean) = action {
+        repository.setReadReceipts(enabled); user = repository.api.user
+        repository.sync(); reloadLocal()
+    }
     fun setRetention(hours: Long) = action {
         require(hours in 1..8760) { "请输入 1 至 8760 小时" }
         repository.configureRetention(hours * 3600)
         retentionSeconds = hours * 3600
         preview = null
-        reloadLocal(markRead = false)
+        reloadLocal()
     }
 
     fun checkUpdate(manual: Boolean = true) {
@@ -292,7 +322,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (e is ApiException && e.status == 401) {
             withContext(NonCancellable) {
                 syncJob?.cancel(); repository.logout(false); user = null
-                conversations = emptyList(); contacts = emptyList(); messages = emptyList(); preview = null
+                conversations = emptyList(); contacts = emptyList(); messages = emptyList(); preview = null; pendingAvatar = null; pendingSelection = null
                 conversationId = null; screen = "home"
                 if (privacy) locked = true
             }

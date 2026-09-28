@@ -112,6 +112,7 @@ class LocalStorageInstrumentedTest {
         val now = System.currentTimeMillis() / 1000
         cache.put(TouchDatabase.Item("meta", "owner", owner))
         repo.purge()
+        repo.enableRetention(true)
         repo.configureRetention(3600)
         val fileId = UUID.randomUUID().toString()
         fun message(id: String, time: Long) = JSONObject().put("id", id).put("conversation_id", "c").put("sender_id", owner)
@@ -139,13 +140,14 @@ class LocalStorageInstrumentedTest {
         cache.put(TouchDatabase.Item("meta", "owner", owner)); repo.purge()
         assertTrue(runCatching { repo.download(ChatMessage.parse(old)) { } }.isFailure)
         repo.logout(false)
-        repo.configureRetention(7 * 86400)
+        repo.enableRetention(false)
     }
 
     @Test fun policySurvivesClockRollbackAndFailsClosedOnTampering() {
         val vault = vault()
         var now = 1000000L
         val policy = RetentionPolicy(vault) { now }
+        policy.setEnabled(true, "alice")
         policy.configure(3600, "alice")
         val floor = policy.cutoff("alice")
         now -= 5000
@@ -162,6 +164,7 @@ class LocalStorageInstrumentedTest {
         val owner = UUID.randomUUID().toString()
         cache.put(TouchDatabase.Item("meta", "owner", owner))
         repo.purge()
+        repo.enableRetention(true)
         repo.configureRetention(3600)
         val id = UUID.randomUUID().toString()
         val bytes = "legacy-file-private-canary".toByteArray()
@@ -181,7 +184,38 @@ class LocalStorageInstrumentedTest {
         assertFalse(migrated.encryptedFile.readBytes().toString(Charsets.ISO_8859_1).contains("legacy-file-private-canary"))
         repo.logout(false)
         assertFalse(migrated.valid())
-        repo.configureRetention(7 * 86400)
+        repo.enableRetention(false)
+    }
+    @Test fun retentionIsOffByDefaultAndDisablingFreezesFloorAcrossRestart() {
+        val vault = vault()
+        var now = 1000000L
+        val policy = RetentionPolicy(vault) { now }
+        assertFalse(policy.enabled)
+        assertEquals(3600L, policy.seconds)
+        assertEquals(0L, policy.cutoff("alice"))
+        now += 86400
+        assertEquals(0L, policy.cutoff("alice"))
+        policy.setEnabled(true, "alice")
+        assertEquals(now - 3600, policy.cutoff("alice"))
+        policy.setEnabled(false, "alice")
+        val floor = policy.cutoff("alice")
+        now += 86400
+        assertEquals(floor, RetentionPolicy(vault) { now }.cutoff("alice"))
+        policy.configure(86400, "alice")
+        policy.setEnabled(true, "alice")
+        assertEquals(3600L, policy.seconds)
+        assertTrue(policy.cutoff("alice") > floor)
+    }
+    @Test fun upgradeTurnsOldAutomaticRetentionOffWithoutLosingDestroyedFloor() {
+        val vault = vault()
+        vault.write("retention", JSONObject().put("schema", 1).put("seconds", 604800)
+            .put("floors", JSONObject().put("alice", 100000)).toString().toByteArray())
+        val policy = RetentionPolicy(vault) { 9999999L }
+        assertFalse(policy.enabled)
+        assertEquals(3600L, policy.seconds)
+        assertEquals(100000L, policy.cutoff("alice"))
+        assertEquals(0L, policy.cutoff("bob"))
+        assertFalse(RetentionPolicy(vault).enabled)
     }
     private fun hash(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 }

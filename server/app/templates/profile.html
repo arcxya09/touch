@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<header><div><p class="muted small">TOUCH / PROFILE</p><h1>编辑个人资料</h1><p class="muted">@{{user.username}} · 账号名不可修改</p></div><a href="/admin" class="button secondary">返回</a></header>
+<section class="card">
+<form method="post" enctype="multipart/form-data" action="/admin/users/{{user.id}}/profile">
+<input type="hidden" name="csrf" value="{{csrf}}">
+{% if user.avatar_version %}<p><img src="/admin/users/{{user.id}}/avatar?v={{user.avatar_version}}" alt="当前头像" width="96" height="96" style="border-radius:24px"></p>{% endif %}
+<p><label>头像（图片，最多 5 MiB）<input type="file" name="avatar" accept="image/*"></label></p>
+{% if user.avatar_version %}<p><label><input type="checkbox" name="remove_avatar" value="true"> 移除当前头像（选择新图片时以新图片为准）</label></p>{% endif %}
+<p><label>昵称<input name="display_name" value="{{user.display_name}}" required maxlength="64"></label></p>
+<p><label>个人简介<input name="bio" value="{{user.bio}}" maxlength="160" style="width:min(100%,560px)"></label></p>
+<p class="muted small">昵称、头像和简介会显示给其他用户。头像会裁剪为方形并移除图片元数据。</p>
+<button>保存资料</button>
+</form></section>
+{% endblock %}

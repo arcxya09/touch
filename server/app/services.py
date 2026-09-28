@@ -11,10 +11,13 @@ def pair(a: str, b: str) -> str:
     return ":".join(sorted((a, b)))
 
 
-def user_json(user: User):
-    return {"id": user.id, "username": "deleted" if user.deleted_at else user.username,
-            "display_name": user.display_name,
+def user_json(user: User, private=False):
+    result = {"id": user.id, "username": "deleted" if user.deleted_at else user.username,
+            "display_name": user.display_name, "bio": user.bio, "avatar_version": user.avatar_version,
             "must_change_password": user.must_change_password, "is_admin": user.is_admin}
+    if private:
+        result["read_receipts_enabled"] = bool(user.is_admin and user.read_receipts_enabled)
+    return result
 
 
 def attachment_json(item: Attachment):
@@ -66,10 +69,14 @@ def conversation_json(db: Session, conversation: Conversation, user_id: str, aft
     unread = db.scalar(select(func.count()).select_from(Message).where(
         Message.conversation_id == conversation.id, Message.seq > max(read, clear), Message.sender_id != user_id,
         Message.created_at > after_time))
-    return {"id": conversation.id, "peer": user_json(peer), "unread": unread,
+    result = {"id": conversation.id, "peer": user_json(peer), "unread": unread,
             "clear_seq": clear, "read_seq": read,
             "can_send": bool(contact and contact.state == "accepted" and peer.active),
             "last_message": message_json(db, last) if last else None}
+    viewer = db.get(User, user_id)
+    if viewer.is_admin and viewer.read_receipts_enabled:
+        result["peer_read_seq"] = conversation.b_read if user_id == conversation.a else conversation.a_read
+    return result
 
 
 def all_conversations(db: Session, user_id: str, after_time: int = 0):

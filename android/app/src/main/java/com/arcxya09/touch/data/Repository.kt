@@ -14,6 +14,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
 import okio.BufferedSink
 import org.json.JSONArray
 import org.json.JSONObject
@@ -57,6 +58,9 @@ class Repository(private val context: Context, private val database: () -> Touch
         files.folder.listFiles()?.filter { it.isFile }?.forEach { check(it.delete()) }
     }
     private fun cutoff(): Long = localOwner?.let(retention::cutoff) ?: Long.MAX_VALUE
+    suspend fun enableRetention(enabled: Boolean) = withContext(Dispatchers.IO) {
+        retention.setEnabled(enabled, localOwner); purge()
+    }
     suspend fun configureRetention(seconds: Long) = withContext(Dispatchers.IO) {
         retention.configure(seconds, localOwner); purge()
     }
@@ -134,6 +138,44 @@ class Repository(private val context: Context, private val database: () -> Touch
         val user = api.json("/api/v1/auth/password", "POST", JSONObject().put("current_password", old).put("new_password", new))
         api.session?.let { api.save(JSONObject(it.toString()).put("user", user)) }
     }
+    private suspend fun acceptUser(user: JSONObject) {
+        api.session?.let { api.save(JSONObject(it.toString()).put("user", user)) }
+    }
+    suspend fun updateProfile(name: String, bio: String) = syncLock.withLock {
+        acceptUser(api.json("/api/v1/auth/profile", "PATCH", JSONObject().put("display_name", name.trim()).put("bio", bio.trim())))
+    }
+    suspend fun setReadReceipts(enabled: Boolean) = syncLock.withLock {
+        acceptUser(api.json("/api/v1/auth/preferences", "PATCH", JSONObject().put("read_receipts_enabled", enabled)))
+    }
+    suspend fun removeAvatar() = syncLock.withLock { acceptUser(api.json("/api/v1/auth/avatar", "DELETE")) }
+    suspend fun uploadAvatar(uri: Uri) = syncLock.withLock { withContext(Dispatchers.IO) {
+        // Bound memory and never create a plaintext thumbnail or upload staging file.
+        val bytes = context.contentResolver.openInputStream(uri)?.use { readBounded(it, 5 * 1024 * 1024) }
+            ?: error("无法读取图片")
+        require(bytes.size <= 5 * 1024 * 1024) { "头像不能超过 5 MiB" }
+        val body = MultipartBody.Builder().setType(MultipartBody.FORM)
+            .addFormDataPart("file", "avatar", bytes.toRequestBody("application/octet-stream".toMediaTypeOrNull())).build()
+        api.response("/api/v1/auth/avatar", "POST", body).use { acceptUser(JSONObject(it.body!!.string())) }
+    } }
+    private fun readBounded(input: java.io.InputStream, limit: Int): ByteArray {
+        val output = java.io.ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        while (true) {
+            val count = input.read(buffer, 0, minOf(buffer.size, limit + 1 - output.size()))
+            if (count < 0) break
+            output.write(buffer, 0, count)
+            require(output.size() <= limit) { "图片超过大小限制" }
+        }
+        return output.toByteArray()
+    }
+    suspend fun avatarBytes(person: Person): ByteArray? = withContext(Dispatchers.IO) {
+        val version = person.avatarVersion ?: return@withContext null
+        api.response("/api/v1/profiles/${person.id}/avatar/$version").use { response ->
+            val bytes = response.body!!.byteStream().use { readBounded(it, 512 * 1024) }
+            require(bytes.size <= 512 * 1024) { "头像过大" }
+            bytes
+        }
+    }
     suspend fun verifyPassword(password: String) { api.json("/api/v1/auth/verify-password", "POST", JSONObject().put("password", password)) }
     suspend fun contacts(): List<ContactItem> = withContext(Dispatchers.IO) { cache.items("contact").map { ContactItem.parse(JSONObject(it.json)) } }
     suspend fun conversations(): List<Conversation> = withContext(Dispatchers.IO) {
@@ -163,11 +205,8 @@ class Repository(private val context: Context, private val database: () -> Touch
     suspend fun sync() = syncLock.withLock { withContext(Dispatchers.IO) {
         purge()
         if (api.user == null || api.user?.mustChange == true) return@withContext
-        // Populate the role when upgrading an existing 1.0.0 session.
-        if (api.session?.optJSONObject("user")?.has("is_admin") == false) {
-            val currentUser = api.json("/api/v1/auth/me")
-            api.session?.let { api.save(JSONObject(it.toString()).put("user", currentUser)) }
-        }
+        // Web profile edits and receipt preferences also refresh existing sessions.
+        acceptUser(api.json("/api/v1/auth/me"))
         do {
             val cursor = cache.get("meta", "cursor")?.json?.toLongOrNull() ?: 0L
             val result = api.json("/api/v1/sync?cursor=$cursor&after_time=${cutoff()}")

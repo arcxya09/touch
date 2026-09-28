@@ -2,11 +2,12 @@ import secrets
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
+from pydantic import ValidationError
 
 from .config import settings
 from .account_deletion import delete_account, lock_accounts
@@ -14,6 +15,7 @@ from .database import get_db
 from .models import AdminSession, Attachment, Audit, MobileSession, User, now
 from .security import digest, dummy_hash, limiter, password_hasher, token, verify_password
 from .services import emit
+from .profiles import Profile, avatar_response, profile_changed, read_avatar, set_avatar
 
 router = APIRouter(prefix="/admin", include_in_schema=False)
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -40,6 +42,48 @@ def check_csrf(request: Request, given: str, expected: str | None):
     if (not expected or not secrets.compare_digest(given.encode(), expected.encode())
             or (origin and origin.rstrip("/") != settings.public_base_url)):
         raise HTTPException(403, "页面已过期，请刷新后重试")
+
+
+@router.get("/profile")
+def own_profile(auth=Depends(admin_session)):
+    return RedirectResponse(f"/admin/users/{auth[1].id}/profile", 303)
+
+
+@router.get("/users/{user_id}/avatar")
+def admin_avatar(user_id: str, auth=Depends(admin_session), db: Session = Depends(get_db)):
+    return avatar_response(db.get(User, user_id))
+
+
+@router.get("/users/{user_id}/profile")
+def profile_page(user_id: str, request: Request, auth=Depends(admin_session), db: Session = Depends(get_db)):
+    user = db.get(User, user_id)
+    if not user or user.deleted_at:
+        raise HTTPException(404, "账号不存在")
+    return templates.TemplateResponse(request=request, name="profile.html",
+                                      context={"user": user, "csrf": auth[0].csrf})
+
+
+@router.post("/users/{user_id}/profile")
+def save_profile(user_id: str, request: Request, display_name: str = Form(max_length=64),
+                 bio: str = Form(default="", max_length=160), avatar: UploadFile | None = File(default=None),
+                 remove_avatar: bool = Form(default=False), csrf: str = Form(),
+                 auth=Depends(admin_session), db: Session = Depends(get_db)):
+    check_csrf(request, csrf, auth[0].csrf)
+    try:
+        profile = Profile(display_name=display_name, bio=bio)
+    except ValidationError as exc:
+        raise HTTPException(400, "昵称不能为空且不超过 64 字，简介不超过 160 字") from exc
+    data = read_avatar(avatar) if avatar and avatar.filename else None
+    user = lock_accounts(db).get(user_id)
+    if not user or user.deleted_at:
+        raise HTTPException(404, "账号不存在")
+    user.display_name, user.bio = profile.display_name, profile.bio.strip()
+    if data is not None or remove_avatar:
+        set_avatar(user, data)
+    profile_changed(db, user)
+    db.add(Audit(actor_id=auth[1].id, action="edit_profile", target_id=user.id))
+    db.commit()
+    return RedirectResponse("/admin", 303)
 
 
 @router.get("/login")
