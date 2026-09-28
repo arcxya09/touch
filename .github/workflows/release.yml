@@ -68,7 +68,8 @@ jobs:
           cd ..
           mkdir -p dist
           cp android/app/build/outputs/apk/release/app-release.apk dist/touch.apk
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose dist/touch.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs dist/touch.apk > "$RUNNER_TEMP/apk-signature.txt"
+          grep -F "Signer #1 certificate SHA-256 digest: $(cat signing-certificate.sha256)" "$RUNNER_TEMP/apk-signature.txt"
           python scripts/release_manifest.py --apk dist/touch.apk --aapt "$ANDROID_HOME/build-tools/36.0.0/aapt" --tag "$RELEASE_TAG"
       - name: Enforce increasing version code
         run: |
