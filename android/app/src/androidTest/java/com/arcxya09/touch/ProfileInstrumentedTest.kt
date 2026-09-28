@@ -52,7 +52,12 @@ class ProfileInstrumentedTest {
             compose.onNodeWithText("昵称").performTextReplacement("资料验收昵称")
             compose.onNodeWithText("个人简介").performTextReplacement("资料验收简介")
             compose.onNodeWithText("保存资料").performClick()
-            compose.waitUntil(20000) { compose.onAllNodesWithText("个人资料已保存").fetchSemanticsNodes().isNotEmpty() }
+            try {
+                compose.waitUntil(20000) { vm.error != null && !vm.busy }
+            } catch (e: Throwable) {
+                throw AssertionError("Profile state: screen=${vm.screen}, visible=${vm.mayShowChat}, busy=${vm.busy}, error=${vm.error}\n", e)
+            }
+            assertEquals("个人资料已保存", vm.error)
             compose.onNodeWithText("知道了").performClick()
             assertEquals("资料验收昵称", repo.api.user!!.name)
             assertEquals("资料验收简介", repo.api.user!!.bio)

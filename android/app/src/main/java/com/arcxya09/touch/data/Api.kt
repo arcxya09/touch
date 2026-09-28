@@ -2,6 +2,8 @@ package com.arcxya09.touch.data
 
 import com.arcxya09.touch.BuildConfig
 import com.arcxya09.touch.security.SecureStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -36,7 +38,7 @@ class Api(private val secure: SecureStore) {
         })
     }
 
-    suspend fun response(path: String, method: String = "GET", body: RequestBody? = null, authenticated: Boolean = true): Response {
+    suspend fun response(path: String, method: String = "GET", body: RequestBody? = null, authenticated: Boolean = true): Response = withContext(Dispatchers.IO) {
         val originalToken = session?.optString("access_token")
         fun request() = Request.Builder().url(BuildConfig.API_BASE + path).method(method, body).apply {
             if (authenticated) session?.optString("access_token")?.let { header("Authorization", "Bearer $it") }
@@ -66,12 +68,12 @@ class Api(private val secure: SecureStore) {
             result.close()
             throw exception
         }
-        return result
+        result
     }
 
-    suspend fun text(path: String, method: String = "GET", json: JSONObject? = null, auth: Boolean = true): String {
+    suspend fun text(path: String, method: String = "GET", json: JSONObject? = null, auth: Boolean = true): String = withContext(Dispatchers.IO) {
         val body = if (method != "GET") (json ?: JSONObject()).toString().toRequestBody("application/json".toMediaType()) else null
-        return response(path, method, body, auth).use { it.body?.string().orEmpty() }
+        response(path, method, body, auth).use { it.body?.string().orEmpty() }
     }
     suspend fun json(path: String, method: String = "GET", json: JSONObject? = null, auth: Boolean = true) = JSONObject(text(path, method, json, auth))
     fun closeConnections() { client.dispatcher.cancelAll() }
