@@ -39,6 +39,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         app.alerts.chatVisible = foreground && mayShowChat && user != null && user?.mustChange == false && screen != "timer"
         if (app.alerts.chatVisible) app.alerts.clearMessages()
     }
+    var safety by mutableStateOf(com.arcxya09.touch.security.SafetyOptions()); private set
+    fun saveSafety(value: com.arcxya09.touch.security.SafetyOptions) = action {
+        withContext(Dispatchers.IO) { value.save(app.vault) }; safety = value
+    }
     var initialized by mutableStateOf(false); private set
     var privacy by mutableStateOf(marker.exists()); private set
     var locked by mutableStateOf(true); private set
@@ -84,6 +88,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 needsPrivacySetup = config?.optBoolean("pending") == true
             }.onFailure { privacy = true; privacyChoiceMade = true }
             try {
+                safety = withContext(Dispatchers.IO) { com.arcxya09.touch.security.SafetyOptions.read(app.vault) }
                 repository.initialize()
                 alertOptions = withContext(Dispatchers.IO) { app.alertSettings.read() }
                 retentionEnabled = withContext(Dispatchers.IO) { repository.retention.enabled }
@@ -151,6 +156,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         locked = true
         if (!privacy) screen = "timer"
     }
+    fun returnFromTimer() {
+        if (privacy || !mayShowChat) return
+        screen = "home"; startForegroundWork()
+    }
     fun unlock(points: List<Int>) {
         if (!privacy || !initialized || pattern.isEmpty()) return
         if (System.currentTimeMillis() < attempts.getLong("until", 0)) return
@@ -211,18 +220,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         autoUpdate()
         if (user == null || user?.mustChange == true || syncJob?.isActive == true) return
         syncJob = viewModelScope.launch {
+            var lastServiceAttempt = -60000L
             while (isActive && foreground && mayShowChat) {
                 try {
                     val options = withContext(Dispatchers.IO) { app.alertSettings.read() }
                     alertOptions = options
-                    if (options.canRun(user?.id) && app.alerts.allowed() && !AlertService.running) AlertService.start(app)
-                    if (AlertService.running || (options.canRun(user?.id) && app.alerts.allowed())) {
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    if (options.canRun(user?.id) && app.alerts.allowed() && !AlertService.running && now - lastServiceAttempt >= 60000) {
+                        lastServiceAttempt = now; AlertService.start(app)
+                    }
+                    if (AlertService.running) {
                         connected = AlertService.connected; reloadLocal(); delay(1000); continue
                     }
                     repository.sync(); connected = true; reloadLocal()
                     if (!AlertService.running) repository.connect {
                         if (foreground && mayShowChat && !AlertService.running) launch {
-                            try { repository.sync(); reloadLocal() } catch (e: Exception) { if (e !is CancellationException) handleError(e, false) }
+                            try { repository.sync(); connected = true; reloadLocal() } catch (e: Exception) { if (e is CancellationException) throw e; connected = false; handleError(e, false) }
                         }
                     }
                 } catch (e: Exception) {

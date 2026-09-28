@@ -24,7 +24,43 @@ import com.arcxya09.touch.ui.TouchRoot
 import com.arcxya09.touch.update.Updater
 import java.io.File
 
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), android.hardware.SensorEventListener {
+    private val sensors by lazy { getSystemService(android.hardware.SensorManager::class.java) }
+    private var motionOptions: com.arcxya09.touch.security.SafetyOptions? = null
+    private var detector = com.arcxya09.touch.security.MotionExitDetector()
+    private var resumed = false
+    private var exiting = false
+    private var recentsApplied: Boolean? = null
+    fun hasMotionSensor() = sensors.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER) != null
+    internal fun applySafety() {
+        if (!model.initialized || exiting) return
+        val options = model.safety
+        if (recentsApplied != options.hideRecents) {
+            runCatching {
+                getSystemService(android.app.ActivityManager::class.java).appTasks
+                    .firstOrNull { it.taskInfo?.taskId == taskId }?.setExcludeFromRecents(options.hideRecents)
+            }.onSuccess { recentsApplied = options.hideRecents }
+        }
+        val active = options.takeIf { resumed && (it.flipExit || it.shakeExit) }
+        if (motionOptions == active) return
+        sensors.unregisterListener(this); detector = com.arcxya09.touch.security.MotionExitDetector()
+        motionOptions = active
+        if (active != null) sensors.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER)?.let {
+            sensors.registerListener(this, it, android.hardware.SensorManager.SENSOR_DELAY_GAME)
+        }
+    }
+    override fun onAccuracyChanged(sensor: android.hardware.Sensor?, accuracy: Int) = Unit
+    override fun onSensorChanged(event: android.hardware.SensorEvent) {
+        val options = motionOptions ?: return
+        if (resumed && !exiting && detector.sample(event.timestamp / 1000000, event.values[0], event.values[1], event.values[2], options.flipExit, options.shakeExit)) {
+            exiting = true
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            if (::cover.isInitialized) cover.visibility = View.VISIBLE
+            model.background()
+            finishAndRemoveTask()
+        }
+    }
+
     private val model: AppViewModel by viewModels()
     private lateinit var cover: TextView
     private var exportFile: EncryptedAttachment? = null
@@ -76,12 +112,15 @@ class MainActivity : ComponentActivity() {
         (intent.action == Intent.ACTION_MAIN && !intent.getBooleanExtra("message_alert", false) &&
             !intent.getBooleanExtra("notification_settings", false) && (application as TouchApp).alerts.hasDiscreetMessage())
     override fun onPause() {
+        resumed = false; sensors.unregisterListener(this); motionOptions = null
         if (::cover.isInitialized && (model.privacy || model.needsPrivacySetup)) cover.visibility = View.VISIBLE
         model.background()
         super.onPause()
     }
-    override fun onResume() { super.onResume(); model.resume() }
+    override fun onResume() { super.onResume(); resumed = true; model.resume(); applySafety() }
     fun renderedGate() {
+        if (exiting) return
+        applySafety()
         model.renderedChat()
         if (model.privacy || model.needsPrivacySetup || !model.initialized) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)

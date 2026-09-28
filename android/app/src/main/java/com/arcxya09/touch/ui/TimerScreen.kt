@@ -31,7 +31,7 @@ import com.arcxya09.touch.MainActivity
         Row(Modifier.fillMaxWidth().padding(top = 20.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Touch", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.weight(1f))
-            if (!vm.privacy && vm.initialized) TextButton(onClick = { vm.screen = "home" }) { Text("返回") }
+            if (!vm.privacy && vm.initialized) TextButton(onClick = vm::returnFromTimer) { Text("返回") }
             TextButton(onClick = { configure = true }) { Text("时长") }
         }
         Spacer(Modifier.weight(1f))

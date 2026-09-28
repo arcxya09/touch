@@ -53,7 +53,7 @@ import java.util.Locale
                 else when (vm.screen) {
                     "chat" -> ChatScreen(vm, activity)
                     "contacts" -> ContactsScreen(vm)
-                    "settings" -> SettingsScreen(vm)
+                    "settings" -> SettingsScreen(vm, activity)
                     "notifications" -> NotificationSettingsScreen(vm, activity)
                     "profile" -> ProfileScreen(vm, activity)
                     "password" -> PasswordScreen(vm, false)
@@ -62,9 +62,11 @@ import java.util.Locale
                 }
             }
         }
+        LaunchedEffect(vm.safety, vm.initialized) { activity.applySafety() }
         SideEffect { activity.renderedGate() }
         BackHandler(enabled = vm.mayShowChat && vm.screen != "home" && vm.user != null) {
-            vm.screen = if (vm.screen == "preview") "chat" else "home"
+            if (vm.screen == "timer") vm.returnFromTimer()
+            else vm.screen = if (vm.screen == "preview") "chat" else "home"
         }
         BackHandler(enabled = vm.privacy && vm.mayShowChat && vm.screen == "home") { vm.hide() }
         if (vm.mayShowSession) {
@@ -108,10 +110,13 @@ import java.util.Locale
     }
 }
 
-@Composable private fun Header(title: String, back: (() -> Unit)? = null, actions: @Composable RowScope.() -> Unit = {}) {
+@Composable private fun Header(title: String, back: (() -> Unit)? = null, status: String? = null, actions: @Composable RowScope.() -> Unit = {}) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         if (back != null) IconButton(onClick = back) { Icon(Icons.Outlined.ArrowBack, "返回") }
-        Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            Text(title, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            status?.let { Text(it, Modifier.padding(start = 8.dp).testTag("connection-status"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
         actions()
     }
 }
@@ -177,12 +182,11 @@ import java.util.Locale
     var deleting by remember { mutableStateOf<Conversation?>(null) }
     deleting?.let { item -> DeleteConversationConfirm({ deleting = null }) { vm.deleteConversation(item.id); deleting = null } }
     Column(Modifier.fillMaxSize()) {
-        Header("消息") {
+        Header("消息", status = if (vm.connected) "已同步" else "连接中") {
             IconButton(onClick = { vm.screen = "contacts" }) { Icon(Icons.Outlined.PersonAdd, "联系人") }
             IconButton(onClick = { vm.screen = "settings" }) { Icon(Icons.Outlined.Settings, "设置") }
             IconButton(onClick = vm::hide) { Icon(Icons.Outlined.Timer, "返回番茄钟") }
         }
-        Text(if (vm.connected) "已连接" else "连接中 · 打开应用后补齐消息", Modifier.padding(horizontal = 24.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Busy(vm)
         if (vm.conversations.isEmpty()) Empty("还没有会话", "添加联系人，开始第一段对话。")
         LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -332,7 +336,8 @@ import java.util.Locale
             Column(Modifier.padding(14.dp)) {
                 if (message.kind == "text") MessageText(message.text, openLink, Modifier.testTag("message-text-${message.id}"))
                 else {
-                    Icon(if (message.kind == "image") Icons.Outlined.Image else Icons.Outlined.Description, null)
+                    if (message.kind == "image" && !message.pending) ChatImagePreview(message, vm)
+                    else Icon(if (message.kind == "image") Icons.Outlined.Image else Icons.Outlined.Description, null)
                     Text(message.file?.name ?: "附件", fontWeight = FontWeight.Medium)
                     message.file?.let { Text("${"%.1f".format(it.size / 1024.0)} KiB · 点击查看", style = MaterialTheme.typography.labelSmall) }
                 }
@@ -352,7 +357,7 @@ import java.util.Locale
     }
 }
 
-@Composable private fun SettingsScreen(vm: AppViewModel) {
+@Composable private fun SettingsScreen(vm: AppViewModel, activity: MainActivity) {
     var passwordDialog by remember { mutableStateOf<String?>(null) }
     var setup by remember { mutableStateOf(false) }
     var logout by remember { mutableStateOf(false) }
@@ -386,6 +391,12 @@ import java.util.Locale
                 Text("仅管理员可用。开启后，已发送消息旁的灰色小点表示对方已读；没有小点表示未读。", style = MaterialTheme.typography.bodySmall)
                 HorizontalDivider()
             }
+            SafetySwitch("从最近任务隐藏", vm.safety.hideRecents, !vm.busy) { vm.saveSafety(vm.safety.copy(hideRecents = it)) }
+            Text("隐藏整个应用卡片，可从桌面图标重新打开。", style = MaterialTheme.typography.bodySmall)
+            SafetySwitch("翻面退出", vm.safety.flipExit, !vm.busy && activity.hasMotionSensor()) { vm.saveSafety(vm.safety.copy(flipExit = it)) }
+            SafetySwitch("摇一摇退出", vm.safety.shakeExit, !vm.busy && activity.hasMotionSensor()) { vm.saveSafety(vm.safety.copy(shakeExit = it)) }
+            Text(if (activity.hasMotionSensor()) "仅在前台识别：将屏幕朝下保持片刻，或连续明显摇动三次。退出前遮盖内容；后台提醒保持原设置，未发送内容可能丢失。" else "此设备没有可用的加速度传感器。", style = MaterialTheme.typography.bodySmall)
+            HorizontalDivider()
             Text("隐私模式", style = MaterialTheme.typography.titleMedium)
             Text(if (vm.privacy) "已开启。离开前台后立即回到番茄钟。" else "开启后，需在番茄钟上绘制隐藏图案才能进入聊天。", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -461,4 +472,11 @@ import java.util.Locale
 @Composable fun Confirm(title: String, text: String, dismiss: () -> Unit, confirm: () -> Unit) {
     AlertDialog(onDismissRequest = dismiss, title = { Text(title) }, text = { Text(text) },
         confirmButton = { TextButton(onClick = confirm) { Text("确认") } }, dismissButton = { TextButton(onClick = dismiss) { Text("取消") } })
+}
+
+@Composable private fun SafetySwitch(label: String, checked: Boolean, enabled: Boolean, change: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.weight(1f))
+        Switch(checked, change, enabled = enabled, modifier = Modifier.semantics { contentDescription = label + "开关" })
+    }
 }

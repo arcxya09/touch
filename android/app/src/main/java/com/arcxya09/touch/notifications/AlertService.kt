@@ -84,7 +84,7 @@ class AlertService : Service() {
         @Volatile var running = false; private set
         @Volatile var connected = false; private set
         fun start(context: Context): Boolean = runCatching {
-            ContextCompat.startForegroundService(context, Intent(context, AlertService::class.java)); true
+            ContextCompat.startForegroundService(context, Intent(context, AlertService::class.java)) != null
         }.getOrDefault(false)
         fun stop(context: Context) {
             (context.applicationContext as TouchApp).alerts.clearMessages()

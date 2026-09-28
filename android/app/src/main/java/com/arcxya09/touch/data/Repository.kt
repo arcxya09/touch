@@ -355,7 +355,12 @@ class Repository(private val context: Context, private val database: () -> Touch
         cache.put(TouchDatabase.Item("attachment", item.id, result.toString()))
         item
     }
-    suspend fun download(message: ChatMessage, onProgress: (Float) -> Unit): EncryptedAttachment = withContext(Dispatchers.IO) {
+    private val downloadLocks = Array(16) { Mutex() }
+    suspend fun download(message: ChatMessage, onProgress: (Float) -> Unit): EncryptedAttachment {
+        val id = message.file?.id ?: error("附件不存在")
+        return downloadLocks[(id.hashCode() and Int.MAX_VALUE) % downloadLocks.size].withLock { downloadLocked(message, onProgress) }
+    }
+    private suspend fun downloadLocked(message: ChatMessage, onProgress: (Float) -> Unit): EncryptedAttachment = withContext(Dispatchers.IO) {
         purge()
         val item = message.file ?: error("附件不存在")
         val target = attachment(message)
