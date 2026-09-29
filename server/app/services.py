@@ -30,7 +30,9 @@ def message_json(db: Session, message: Message):
     return {"id": message.id, "conversation_id": message.conversation_id,
             "sender_id": message.sender_id, "client_id": message.client_id, "seq": message.seq,
             "kind": message.kind, "text": message.text, "created_at": message.created_at,
-            "attachment": attachment_json(attachment) if attachment else None}
+            "attachment": attachment_json(attachment) if attachment else None,
+            "reply_to": ({"id": message.reply_to_id, "seq": message.reply_to_seq,
+                          "created_at": message.reply_to_created_at} if message.reply_to_id else None)}
 
 
 def emit(db: Session, users: list[str], kind: str, payload: dict):

@@ -29,14 +29,7 @@ private val thumbnailSlots = Semaphore(2)
                 check(vm.mayShowChat && vm.screen == "chat")
                 val file = vm.repository.download(message) {}
                 withContext(Dispatchers.IO) {
-                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    file.input().use { BitmapFactory.decodeStream(it, null, bounds) }
-                    require(bounds.outWidth > 0 && bounds.outHeight > 0)
-                    var sample = 1
-                    while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 512) sample *= 2
-                    val result = file.input().use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample }) }
-                    file.checkAccess()
-                    requireNotNull(result)
+                    decodeEncryptedImage(file, 512)
                 }
             }
         } catch (e: CancellationException) { throw e }

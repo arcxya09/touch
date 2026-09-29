@@ -57,6 +57,7 @@ class Repository(private val context: Context, private val database: () -> Touch
         purge()
         files.folder.listFiles()?.filter { it.name.endsWith(".part") }?.forEach { check(it.delete()) }
         runCatching { api.load() }.onFailure { api.save(null); clearLocal() }
+        connection.detailed(cache.get("meta", "diagnostics")?.json == "true")
         initialized = true
     } }
     suspend fun login(username: String, password: String) = syncLock.withLock { withContext(Dispatchers.IO) {
@@ -78,6 +79,7 @@ class Repository(private val context: Context, private val database: () -> Touch
         File(context.cacheDir, "attachments").listFiles()?.filter { it.isFile }?.forEach { it.delete() }
         files.folder.listFiles()?.filter { it.isFile }?.forEach { check(it.delete()) }
     } }
+    suspend fun visibilityFloor() = withContext(Dispatchers.IO) { cutoff() }
     private fun cutoff(): Long = localOwner?.let(retention::cutoff) ?: Long.MAX_VALUE
     suspend fun enableRetention(enabled: Boolean) = withContext(Dispatchers.IO) {
         retention.setEnabled(enabled, localOwner); purge()
@@ -90,16 +92,18 @@ class Repository(private val context: Context, private val database: () -> Touch
         retention.seconds // Validate encrypted policy even before login; never reset a corrupt watermark.
         val floor = cutoff()
         var changed = false
-        val keep = mutableSetOf<String>()
+        val removeFiles = mutableSetOf<String>()
         db.runInTransaction {
-            cache.items("message").forEach {
-                val message = JSONObject(it.json)
-                if (message.getLong("created_at") <= floor) { cache.remove("message", it.id); changed = true }
-                else message.optJSONObject("attachment")?.getString("id")?.let(keep::add)
+            cache.expired("message", floor).forEach {
+                if (it.attachmentId.isNotBlank()) removeFiles.add(it.attachmentId)
+                cache.remove("message", it.id); changed = true
             }
+            cache.expired("draft", floor).forEach { cache.remove("draft", it.id); changed = true }
             cache.pendingItems().forEach {
-                if (it.createdAt <= floor) { cache.removePending(it.id); changed = true }
-                else JSONObject(it.body).optString("attachment_id").takeIf(String::isNotBlank)?.let(keep::add)
+                if (it.createdAt <= floor) {
+                    JSONObject(it.body).optString("attachment_id").takeIf(String::isNotBlank)?.let(removeFiles::add)
+                    cache.removePending(it.id); changed = true
+                }
             }
             cache.items("conversation").forEach {
                 val json = JSONObject(it.json)
@@ -109,15 +113,14 @@ class Repository(private val context: Context, private val database: () -> Touch
                     cache.put(TouchDatabase.Item("conversation", it.id, json.toString())); changed = true
                 }
             }
-            cache.items("attachment").forEach {
-                val json = JSONObject(it.json)
-                if (it.id !in keep && json.optLong("local_created_at", 0) <= floor) {
-                    cache.remove("attachment", it.id); changed = true
-                } else keep.add(it.id)
+            cache.expired("attachment", floor).forEach {
+                removeFiles.add(it.id); cache.remove("attachment", it.id); changed = true
             }
+            removeFiles.forEach { cache.remove("attachment", it) }
         }
-        files.folder.listFiles()?.filter { it.isFile && !it.name.endsWith(".part") && it.name !in keep }?.forEach {
-            check(it.delete()) { "无法清理过期附件" }; changed = true
+        removeFiles.forEach { id ->
+            val file = File(files.folder, id)
+            if (file.exists()) check(file.delete()) { "无法清理过期附件" }
         }
         migratePlainAttachments()
         changed
@@ -202,32 +205,82 @@ class Repository(private val context: Context, private val database: () -> Touch
     suspend fun verifyPassword(password: String) { api.json("/api/v1/auth/verify-password", "POST", JSONObject().put("password", password)) }
     suspend fun contacts(): List<ContactItem> = withContext(Dispatchers.IO) { cache.items("contact").map { ContactItem.parse(JSONObject(it.json)) } }
     suspend fun conversations(): List<Conversation> = withContext(Dispatchers.IO) {
-        purge()
         cache.items("conversation").map { Conversation.parse(JSONObject(it.json)) }.sortedByDescending { it.last?.createdAt ?: 0 }
     }
-    suspend fun messages(cid: String): List<ChatMessage> = withContext(Dispatchers.IO) {
-        purge()
-        val messages = cache.items("message").map { ChatMessage.parse(JSONObject(it.json)) }.filter { it.conversationId == cid }
-        val pending = cache.pendingItems().filter { it.conversationId == cid }.map {
+    suspend fun messages(cid: String, before: Long = Long.MAX_VALUE, first: Long? = null, last: Long? = null): List<ChatMessage> = withContext(Dispatchers.IO) {
+        val floor = cutoff()
+        val rows = if (first != null && last != null) cache.window(cid, first, last, floor)
+            else cache.page(cid, before, floor).reversed()
+        val messages = rows.map { ChatMessage.parse(JSONObject(it.json)) }
+        val pending = if (before != Long.MAX_VALUE || first != null) emptyList() else cache.pendingFor(cid, floor).map {
             val json = JSONObject(it.body)
             ChatMessage(it.id, cid, api.user?.id.orEmpty(), it.id, Long.MAX_VALUE, json.getString("kind"), json.optString("text"), it.createdAt,
-                json.optString("attachment_id").takeIf(String::isNotBlank)?.let { id -> cache.get("attachment", id)?.let { file -> FileItem.parse(JSONObject(file.json)) } }, true)
+                json.optString("attachment_id").takeIf(String::isNotBlank)?.let { id -> cache.get("attachment", id)?.let { file -> FileItem.parse(JSONObject(file.json)) } }, true,
+                json.optJSONObject("reply_to")?.let(ReplyRef::parse))
         }
-        (messages.sortedBy { it.seq } + pending)
+        messages + pending
+    }
+    private fun clearSeq(cid: String): Long = maxOf(cache.get("meta", "clear:$cid")?.json?.toLongOrNull() ?: 0L,
+        cache.get("conversation", cid)?.let { JSONObject(it.json).optLong("clear_seq") } ?: 0L)
+    fun visible(cid: String, ref: ReplyRef): Boolean = ref.createdAt > cutoff() &&
+        ref.seq > clearSeq(cid)
+    private val quoteLocks = Array(16) { Mutex() }
+    suspend fun original(cid: String, ref: ReplyRef): ChatMessage? = quoteLocks[(ref.id.hashCode() and Int.MAX_VALUE) % 16].withLock {
+        withContext(Dispatchers.IO) {
+            if (!visible(cid, ref)) return@withContext null
+            val generation = accessGeneration.get()
+            val cached = cache.get("message", ref.id)?.let { ChatMessage.parse(JSONObject(it.json)) }
+            if (cached != null && cached.conversationId == cid && cached.createdAt > cutoff()) return@withContext cached
+            val json = try { api.json("/api/v1/conversations/$cid/messages/${ref.id}?after_time=${cutoff()}") }
+                catch (e: ApiException) { if (e.status == 404) return@withContext null else throw e }
+            if (generation != accessGeneration.get() || !visible(cid, ref)) return@withContext null
+            val result = ChatMessage.parse(json)
+            check(result.conversationId == cid && result.id == ref.id)
+            storeMessage(json); result
+        }
+    }
+    suspend fun locate(cid: String, ref: ReplyRef): List<ChatMessage> = syncLock.withLock { withContext(Dispatchers.IO) {
+        check(visible(cid, ref)) { "原消息不可用" }
+        val result = api.json("/api/v1/conversations/$cid/messages/${ref.id}/context?after_time=${cutoff()}").getJSONArray("messages")
+        check(result.length() <= 50)
+        db.runInTransaction { for (i in 0 until result.length()) storeMessage(result.getJSONObject(i)) }
+        check(visible(cid, ref)) { "原消息不可用" }
+        (0 until result.length()).map { ChatMessage.parse(result.getJSONObject(it)) }.filter { it.createdAt > cutoff() }
+    } }
+    suspend fun draftEnabled(): Boolean = withContext(Dispatchers.IO) { cache.get("meta", "drafts")?.json == "true" }
+    suspend fun setDraftEnabled(value: Boolean) = purgeLock.withLock { withContext(Dispatchers.IO) { db.runInTransaction {
+        cache.put(TouchDatabase.Item("meta", "drafts", value.toString()))
+        if (!value) cache.removeKind("draft")
+    } } }
+    suspend fun draft(cid: String): JSONObject? = withContext(Dispatchers.IO) {
+        cache.get("draft", cid)?.takeIf { it.createdAt > cutoff() }?.let { JSONObject(it.json) }
+    }
+    suspend fun saveDraft(cid: String, text: String, ref: ReplyRef?, editedAt: Long) = purgeLock.withLock { withContext(Dispatchers.IO) {
+        if (draftEnabled() && editedAt > cutoff() && api.user?.id == localOwner && localOwner != null) {
+            if (text.isEmpty() && ref == null) cache.remove("draft", cid)
+            else cache.put(TouchDatabase.Item("draft", cid, JSONObject().put("text", text).put("reply_to", ref?.json())
+                .put("created_at", editedAt).put("conversation_id", cid).toString()))
+        }
+    }
     }
     private fun storeMessage(json: JSONObject) {
-        if (json.getLong("created_at") > cutoff()) cache.put(TouchDatabase.Item("message", json.getString("id"), json.toString()))
+        if (json.getLong("created_at") > cutoff() && json.getLong("seq") > clearSeq(json.getString("conversation_id"))) cache.put(TouchDatabase.Item("message", json.getString("id"), json.toString()))
         cache.removePending(json.getString("client_id"))
     }
     private fun clearMessages(cid: String, through: Long) {
-        cache.items("message").forEach {
-            val message = JSONObject(it.json)
-            if (message.getString("conversation_id") == cid && message.getLong("seq") <= through) {
-                message.optJSONObject("attachment")?.getString("id")?.let { id -> cache.remove("attachment", id) }
-                cache.remove("message", it.id)
+        if (through > (cache.get("meta", "clear:$cid")?.json?.toLongOrNull() ?: 0L)) {
+            accessGeneration.incrementAndGet()
+            cache.put(TouchDatabase.Item("meta", "clear:$cid", through.toString()))
+        }
+        cache.cleared(cid, through).forEach {
+            if (it.attachmentId.isNotBlank()) {
+                cache.remove("attachment", it.attachmentId)
+                File(files.folder, it.attachmentId).delete()
             }
+            cache.remove("message", it.id)
         }
     }
+
     private fun deleteLocalConversation(cid: String, through: Long, discardPending: Boolean = false) {
         accessGeneration.incrementAndGet()
         clearMessages(cid, through)
@@ -235,6 +288,7 @@ class Repository(private val context: Context, private val database: () -> Touch
             JSONObject(it.body).optString("attachment_id").takeIf(String::isNotBlank)?.let { id -> cache.remove("attachment", id) }
             cache.removePending(it.id)
         }
+        cache.remove("draft", cid)
         cache.remove("conversation", cid)
     }
     suspend fun sync() = syncLock.withLock { withContext(Dispatchers.IO) {
@@ -294,7 +348,7 @@ class Repository(private val context: Context, private val database: () -> Touch
         }
         if (eligible.isNotEmpty()) onIncoming?.invoke(eligible)
         connection.success(generation, cache.get("meta", "cursor")?.json?.toLongOrNull() ?: 0L)
-        } catch (e: Exception) { connection.failure(generation); throw e }
+        } catch (e: Exception) { connection.failedWith(e); connection.failure(generation); throw e }
     } }
     suspend fun history(cid: String, before: Long? = null): Boolean = syncLock.withLock { withContext(Dispatchers.IO) {
         purge()
@@ -305,19 +359,33 @@ class Repository(private val context: Context, private val database: () -> Touch
         }
         result.getBoolean("has_more")
     } }
-    suspend fun send(cid: String, text: String = "", attachment: FileItem? = null): String = withContext(Dispatchers.IO) {
+    val sending = kotlinx.coroutines.flow.MutableStateFlow<Set<String>>(emptySet())
+    suspend fun send(cid: String, text: String = "", attachment: FileItem? = null, reply: ReplyRef? = null,
+                     queued: suspend () -> Unit = {}): String = withContext(Dispatchers.IO) {
+        if (reply != null) check(original(cid, reply) != null) { "原消息不可用，请移除引用后再发送" }
         val id = UUID.randomUUID().toString()
         val body = JSONObject().put("client_id", id).put("kind", attachment?.kind ?: "text").put("text", text)
         if (attachment != null) body.put("attachment_id", attachment.id)
-        cache.pending(TouchDatabase.Outbox(id, cid, body.toString(), System.currentTimeMillis() / 1000))
+        if (reply != null) body.put("reply_to_id", reply.id).put("reply_to", reply.json())
+        db.runInTransaction {
+            cache.pending(TouchDatabase.Outbox(id, cid, body.toString(), System.currentTimeMillis() / 1000))
+            cache.remove("draft", cid)
+        }
+        queued()
         retry(id)
         id
     }
     suspend fun retry(id: String) = syncLock.withLock { withContext(Dispatchers.IO) {
         purge()
         val item = cache.pendingItems().firstOrNull { it.id == id } ?: return@withContext
-        val result = api.json("/api/v1/conversations/${item.conversationId}/messages", "POST", JSONObject(item.body))
-        db.runInTransaction { storeMessage(result) }
+        val body = JSONObject(item.body)
+        body.optJSONObject("reply_to")?.let { check(original(item.conversationId, ReplyRef.parse(it)) != null) { "原消息不可用，请删除待发送项并重新编辑" } }
+        body.put("after_time", cutoff()).remove("reply_to")
+        sending.value = sending.value + id
+        try {
+            val result = api.json("/api/v1/conversations/${item.conversationId}/messages", "POST", body)
+            db.runInTransaction { storeMessage(result) }
+        } finally { sending.value = sending.value - id }
     } }
     suspend fun discard(id: String) = withContext(Dispatchers.IO) { cache.removePending(id) }
     suspend fun read(cid: String, seq: Long) { api.json("/api/v1/conversations/$cid/read", "POST", JSONObject().put("seq", seq)) }
@@ -441,7 +509,10 @@ class Repository(private val context: Context, private val database: () -> Touch
             } }
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { ended(webSocket); webSocket.close(code, reason) }
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) = ended(webSocket)
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) = ended(webSocket)
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                synchronized(this@Repository) { if (socket === webSocket) connection.failedWith(t) }
+                ended(webSocket)
+            }
             private fun ended(webSocket: WebSocket) { synchronized(this@Repository) {
                 if (socket === webSocket) { socket = null; socketToken = null; connection.invalidate(); socketEvent?.invoke() }
             } }

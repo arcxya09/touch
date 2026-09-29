@@ -5,6 +5,8 @@ import android.graphics.BitmapFactory
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.*
@@ -65,7 +67,9 @@ import kotlin.math.sqrt
         scale = (scale * zoom).coerceIn(1f, 5f)
         offset = if (scale == 1f) Offset.Zero else offset + pan
     }
-    Image(bitmap.asImageBitmap(), "文件预览", Modifier.fillMaxSize().transformable(gestures).graphicsLayer {
+    Image(bitmap.asImageBitmap(), "文件预览", Modifier.fillMaxSize().pointerInput(bitmap) {
+        detectTapGestures(onDoubleTap = { scale = if (scale > 1f) 1f else 2.5f; offset = Offset.Zero })
+    }.transformable(gestures).graphicsLayer {
         scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y
     })
 }
@@ -76,12 +80,7 @@ import kotlin.math.sqrt
     LaunchedEffect(file) {
         try {
             bitmap = withContext(Dispatchers.IO) {
-                val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                file.input().use { BitmapFactory.decodeStream(it, null, options) }
-                require(options.outWidth > 0 && options.outHeight > 0) { "图片格式不支持或已损坏" }
-                var sample = 1
-                while (options.outWidth / sample > 2048 || options.outHeight / sample > 2048) sample *= 2
-                file.input().use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample }) } ?: error("图片无法解码")
+                decodeEncryptedImage(file, 2048)
             }
         } catch (e: Exception) { error = e.message ?: "图片无法显示" }
     }

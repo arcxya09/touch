@@ -99,6 +99,7 @@ class Message(Base):
         UniqueConstraint("sender_id", "client_id"),
         UniqueConstraint("conversation_id", "seq"),
         Index("ix_message_history", "conversation_id", "seq"),
+        Index("ix_message_time", "conversation_id", "created_at"),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     conversation_id: Mapped[str] = mapped_column(ForeignKey("conversations.id"))
@@ -108,6 +109,10 @@ class Message(Base):
     kind: Mapped[str] = mapped_column(String(8))
     text: Mapped[str] = mapped_column(Text, default="")
     attachment_id: Mapped[str | None] = mapped_column(ForeignKey("attachments.id"), nullable=True)
+    # Deliberately no FK: reclaiming an original must not remove its replies.
+    reply_to_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    reply_to_seq: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    reply_to_created_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[int] = mapped_column(BigInteger, default=now)
 
 

@@ -31,20 +31,20 @@ class LocalStorageInstrumentedTest {
         val vault = vault()
         val secret = "private-upgrade-canary-" + UUID.randomUUID()
         val original = Room.databaseBuilder(app, TouchDatabase::class.java, name).build()
-        original.cache().put(TouchDatabase.Item("message", "m", secret))
+        original.cache().put(TouchDatabase.Item("message", "m", JSONObject().put("text", secret).toString()))
         original.cache().put(TouchDatabase.Item("meta", "cursor", "87"))
         original.cache().pending(TouchDatabase.Outbox("p", "c", secret, 123))
         original.close()
         assertTrue(app.getDatabasePath(name).readBytes().toString(Charsets.ISO_8859_1).contains(secret))
         EncryptedDatabase.open(app, vault, name).use { db ->
-            assertEquals(secret, db.cache().get("message", "m")!!.json)
+            assertEquals(secret, JSONObject(db.cache().get("message", "m")!!.json).getString("text"))
             assertEquals("87", db.cache().get("meta", "cursor")!!.json)
             assertEquals(secret, db.cache().pendingItems().single().body)
         }
         val encrypted = app.getDatabasePath(name).readBytes()
         assertFalse(encrypted.toString(Charsets.ISO_8859_1).contains(secret))
         assertFalse(encrypted.take(16).toByteArray().contentEquals("SQLite format 3\u0000".toByteArray()))
-        EncryptedDatabase.open(app, vault, name).use { assertEquals(secret, it.cache().get("message", "m")!!.json) }
+        EncryptedDatabase.open(app, vault, name).use { assertEquals(secret, JSONObject(it.cache().get("message", "m")!!.json).getString("text")) }
         assertFalse(File(app.getDatabasePath(name).path + ".encrypting").exists())
         // A lost or incorrect key cannot trigger Room's automatic corruption deletion.
         assertTrue(runCatching { EncryptedDatabase.open(app, vault(), name).use { it.cache().items("message") } }.isFailure)

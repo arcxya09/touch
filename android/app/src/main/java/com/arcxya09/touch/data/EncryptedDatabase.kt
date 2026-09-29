@@ -12,6 +12,25 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 import java.io.File
 
 object EncryptedDatabase {
+    val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE items ADD COLUMN conversationId TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE items ADD COLUMN seq INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE items ADD COLUMN createdAt INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE items ADD COLUMN attachmentId TEXT NOT NULL DEFAULT ''")
+            db.query("SELECT kind,id,json FROM items WHERE kind IN ('message','attachment')").use { rows ->
+                while (rows.moveToNext()) {
+                    val item = TouchDatabase.Item(rows.getString(0), rows.getString(1), rows.getString(2))
+                    db.execSQL("UPDATE items SET conversationId=?,seq=?,createdAt=?,attachmentId=? WHERE kind=? AND id=?",
+                        arrayOf(item.conversationId, item.seq, item.createdAt, item.attachmentId, item.kind, item.id))
+                }
+            }
+            db.execSQL("CREATE INDEX index_items_kind_conversationId_seq ON items(kind,conversationId,seq)")
+            db.execSQL("CREATE INDEX index_items_kind_createdAt ON items(kind,createdAt)")
+            db.execSQL("CREATE INDEX index_items_attachmentId ON items(attachmentId)")
+            db.execSQL("CREATE INDEX index_outbox_conversationId_createdAt ON outbox(conversationId,createdAt)")
+        }
+    }
     @Synchronized fun open(context: Context, vault: LocalVault, name: String = "touch.db"): TouchDatabase {
         System.loadLibrary("sqlcipher")
         val file = context.getDatabasePath(name)
@@ -37,6 +56,7 @@ object EncryptedDatabase {
             }
             // DELETE journaling limits retention of deleted pages; SQLCipher encrypts journals too.
             .setJournalMode(RoomDatabase.JournalMode.TRUNCATE)
+            .addMigrations(MIGRATION_1_2)
             .addCallback(object : RoomDatabase.Callback() {
                 override fun onOpen(db: SupportSQLiteDatabase) { db.query("PRAGMA secure_delete=ON").use { check(it.moveToFirst() && it.getInt(0) == 1) } }
                 override fun onDestructiveMigration(db: SupportSQLiteDatabase) { error("禁止清空数据库升级") }

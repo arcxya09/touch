@@ -56,6 +56,8 @@ class SendMessage(BaseModel):
     kind: Literal["text", "image", "file"]
     text: str = Field(default="", max_length=10000)
     attachment_id: UUID | None = None
+    reply_to_id: UUID | None = None
+    after_time: int = Field(default=0, ge=0)
 
 
 class ReadPosition(BaseModel):
@@ -291,6 +293,32 @@ def history(conversation_id: UUID, before: int | None = Query(default=None, ge=1
             "has_more": len(messages) > limit}
 
 
+@router.get("/conversations/{conversation_id}/messages/{message_id}")
+def original_message(conversation_id: UUID, message_id: UUID,
+                     after_time: int = Query(default=0, ge=0),
+                     user: User = Depends(ready_user), db: Session = Depends(get_db)):
+    conversation = conversation_for(db, str(conversation_id), user.id)
+    message = db.get(Message, str(message_id))
+    if (not message or message.conversation_id != conversation.id
+            or message.seq <= visible_after(conversation, user.id) or message.created_at <= after_time):
+        raise HTTPException(404, "原消息不可用")
+    return message_json(db, message)
+
+
+@router.get("/conversations/{conversation_id}/messages/{message_id}/context")
+def message_context(conversation_id: UUID, message_id: UUID,
+                    after_time: int = Query(default=0, ge=0),
+                    user: User = Depends(ready_user), db: Session = Depends(get_db)):
+    target = original_message(conversation_id, message_id, after_time, user, db)
+    conversation = conversation_for(db, str(conversation_id), user.id)
+    visible = select(Message).where(Message.conversation_id == conversation.id,
+                                    Message.seq > visible_after(conversation, user.id),
+                                    Message.created_at > after_time)
+    before = db.scalars(visible.where(Message.seq < target["seq"]).order_by(Message.seq.desc()).limit(24)).all()
+    after = db.scalars(visible.where(Message.seq >= target["seq"]).order_by(Message.seq).limit(26)).all()
+    return {"messages": [message_json(db, m) for m in [*reversed(before), *after]], "target_id": target["id"]}
+
+
 @router.post("/conversations/{conversation_id}/messages")
 def send(conversation_id: UUID, body: SendMessage, user: User = Depends(ready_user),
          db: Session = Depends(get_db)):
@@ -305,7 +333,8 @@ def send(conversation_id: UUID, body: SendMessage, user: User = Depends(ready_us
     previous = db.scalar(select(Message).where(Message.sender_id == user.id, Message.client_id == str(body.client_id)))
     if previous:
         if (previous.conversation_id != conversation.id or previous.kind != body.kind or previous.text != body.text
-                or previous.attachment_id != (str(body.attachment_id) if body.attachment_id else None)):
+                or previous.attachment_id != (str(body.attachment_id) if body.attachment_id else None)
+                or previous.reply_to_id != (str(body.reply_to_id) if body.reply_to_id else None)):
             raise HTTPException(409, "请求标识已被其他内容使用")
         if previous.seq <= visible_after(conversation, user.id):
             raise HTTPException(409, "该消息已从本人历史删除，不能重新发送")
@@ -325,11 +354,20 @@ def send(conversation_id: UUID, body: SendMessage, user: User = Depends(ready_us
             raise HTTPException(400, "附件不可用")
         if db.scalar(select(Message.id).where(Message.attachment_id == attachment.id)):
             raise HTTPException(409, "附件已关联消息")
+    original = None
+    if body.reply_to_id:
+        original = db.get(Message, str(body.reply_to_id))
+        if (not original or original.conversation_id != conversation.id
+                or original.seq <= visible_after(conversation, user.id) or original.created_at <= body.after_time):
+            raise HTTPException(409, "原消息不可用，请移除引用后再发送")
     conversation.a_hidden = conversation.b_hidden = False
     conversation.next_seq += 1
     message = Message(conversation_id=conversation.id, sender_id=user.id, client_id=str(body.client_id),
                       seq=conversation.next_seq, kind=body.kind, text=body.text,
-                      attachment_id=str(body.attachment_id) if body.attachment_id else None)
+                      attachment_id=str(body.attachment_id) if body.attachment_id else None,
+                      reply_to_id=original.id if original else None,
+                      reply_to_seq=original.seq if original else None,
+                      reply_to_created_at=original.created_at if original else None)
     db.add(message)
     db.add(SendReceipt(sender_id=user.id, client_id=str(body.client_id)))
     db.flush()

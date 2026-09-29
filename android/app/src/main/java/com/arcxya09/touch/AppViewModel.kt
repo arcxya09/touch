@@ -51,6 +51,70 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     var screen by mutableStateOf("home")
     var conversations by mutableStateOf(emptyList<Conversation>()); private set
     var contacts by mutableStateOf(emptyList<ContactItem>()); private set
+    var draftText by mutableStateOf(""); private set
+    var quote by mutableStateOf<ReplyRef?>(null); private set
+    var saveDrafts by mutableStateOf(false); private set
+    var visibilityFloor by mutableStateOf(0L); private set
+    var expiryTick by mutableStateOf(0L); private set
+    var sendingIds by mutableStateOf(emptySet<String>()); private set
+    var highlightId by mutableStateOf<String?>(null); private set
+    var scrollRequest by mutableStateOf(0); private set
+    var browsingHistory by mutableStateOf(false); private set
+    private var pageBefore = Long.MAX_VALUE
+    private var windowFirst: Long? = null
+    private var windowLast: Long? = null
+    private var draftJob: Job? = null
+    private var draftEditedAt = 0L
+    fun editDraft(value: String) { draftText = value.take(10000); persistDraft() }
+    fun quoteMessage(message: ChatMessage) {
+        if (!message.pending) { quote = ReplyRef(message.id, message.seq, message.createdAt); persistDraft() }
+    }
+    fun cancelQuote() { quote = null; persistDraft() }
+    private fun persistDraft() {
+        draftJob?.cancel()
+        draftEditedAt = System.currentTimeMillis() / 1000
+        val cid = conversationId ?: return
+        val owner = user?.id ?: return
+        val text = draftText; val ref = quote; val editedAt = draftEditedAt
+        if (saveDrafts) draftJob = viewModelScope.launch {
+            delay(250)
+            if (repository.api.user?.id == owner) repository.saveDraft(cid, text, ref, editedAt)
+        }
+    }
+    fun enableDrafts(value: Boolean) = action {
+        draftJob?.cancelAndJoin(); repository.setDraftEnabled(value); saveDrafts = value
+        if (value) persistDraft()
+    }
+    private suspend fun queuedDraft() = withContext(Dispatchers.Main.immediate) {
+        draftJob?.cancel(); draftText = ""; quote = null
+        pageBefore = Long.MAX_VALUE; windowFirst = null; windowLast = null; browsingHistory = false; scrollRequest++
+    }
+    var showDiagnostics by mutableStateOf(false)
+    var diagnosticDetails by mutableStateOf(false); private set
+    fun diagnostics() { diagnosticDetails = repository.connection.detailed; showDiagnostics = true }
+    fun enableDiagnostics(value: Boolean) = action {
+        withContext(Dispatchers.IO) { repository.db.cache().put(TouchDatabase.Item("meta", "diagnostics", value.toString())) }
+        repository.connection.detailed(value); diagnosticDetails = value
+    }
+    fun holdHistory() {
+        if (windowFirst == null && !browsingHistory && messages.isNotEmpty()) {
+            val confirmed = messages.filterNot { it.pending }
+            windowFirst = confirmed.minOfOrNull { it.seq }; windowLast = confirmed.maxOfOrNull { it.seq }
+            browsingHistory = windowFirst != null
+        }
+    }
+    fun latest() = action {
+        pageBefore = Long.MAX_VALUE; windowFirst = null; windowLast = null; browsingHistory = false
+        hasMore = repository.history(conversationId ?: return@action); reloadLocal(); scrollRequest++
+    }
+    fun locate(ref: ReplyRef) = action {
+        val cid = conversationId ?: return@action
+        val rows = repository.locate(cid, ref)
+        check(rows.any { it.id == ref.id }) { "原消息不可用" }
+        windowFirst = rows.minOf { it.seq }; windowLast = rows.maxOf { it.seq }; browsingHistory = true
+        messages = rows; hasMore = true; highlightId = ref.id; scrollRequest++
+        viewModelScope.launch { delay(1800); if (highlightId == ref.id) highlightId = null }
+    }
     var messages by mutableStateOf(emptyList<ChatMessage>()); private set
     var conversationId by mutableStateOf<String?>(null); private set
     var hasMore by mutableStateOf(false); private set
@@ -96,6 +160,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 safety = withContext(Dispatchers.IO) { com.arcxya09.touch.security.SafetyOptions.read(app.vault) }
                 repository.initialize()
+                saveDrafts = repository.draftEnabled()
+                viewModelScope.launch {
+                    repository.db.cache().changes().collect {
+                        if (initialized && foreground && mayShowChat) reloadLocal()
+                    }
+                }
+                viewModelScope.launch { repository.sending.collect { sendingIds = it } }
                 alertOptions = withContext(Dispatchers.IO) { app.alertSettings.read() }
                 retentionEnabled = withContext(Dispatchers.IO) { repository.retention.enabled }
                 retentionSeconds = withContext(Dispatchers.IO) { repository.retention.seconds }
@@ -121,7 +192,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     try {
                         alertOptions = withContext(Dispatchers.IO) { app.alertSettings.read() }
                         backgroundAlerts = AlertService.running
-                        if (repository.purge() || AlertService.running || (user != null && repository.api.user == null)) reloadLocal()
+                        expiryTick = System.currentTimeMillis() / 1000
+                        visibilityFloor = repository.visibilityFloor()
+                        if (repository.purge() || (user != null && repository.api.user == null)) reloadLocal()
+                        if (retentionEnabled && draftEditedAt > 0 && draftEditedAt <= expiryTick - retentionSeconds) {
+                            draftText = ""; quote = null; draftJob?.cancel()
+                        }
                         if (foreground && mayShowChat && !busy && pendingNotificationEnable) {
                             pendingNotificationEnable = false; enableAlerts(true)
                         }
@@ -218,6 +294,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun logout() = action(allowSetup = true) {
         syncJob?.cancel(); repository.logout(); user = null
+        draftJob?.cancel(); draftText = ""; quote = null
         conversations = emptyList(); contacts = emptyList(); messages = emptyList(); conversationId = null; pendingAvatar = null; pendingSelection = null; preview = null
         screen = "home"; if (privacy) locked = true
     }
@@ -245,7 +322,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             lastServiceAttempt = now; AlertService.start(app)
                         }
                         if (AlertService.running) {
-                            reloadLocal(); refreshConnectionStatus(); delay(1000); continue
+                            refreshConnectionStatus(); delay(1000); continue
                         }
                         // Connect before sync; any event arriving during sync stays in this one-slot queue.
                         repository.connect { wake.trySend(Unit) }
@@ -272,8 +349,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             if (privacy) locked = true
         }
         user = repository.api.user
+        visibilityFloor = repository.visibilityFloor()
         conversations = repository.conversations(); contacts = repository.contacts()
-        conversationId?.let { messages = repository.messages(it) }
+        conversationId?.let { messages = repository.messages(it, pageBefore, windowFirst, windowLast) }
     }
     private var reportedRead = 0L
     fun markVisibleRead(seq: Long) {
@@ -287,8 +365,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun openConversation(id: String) {
         conversationId = id; reportedRead = 0; screen = "chat"
+        pageBefore = Long.MAX_VALUE; windowFirst = null; windowLast = null; browsingHistory = false
+        draftText = ""; quote = null
         action {
+            if (saveDrafts) repository.draft(id)?.let {
+                draftText = it.optString("text"); quote = it.optJSONObject("reply_to")?.let(ReplyRef::parse)
+                draftEditedAt = it.optLong("created_at")
+            }
             messages = repository.messages(id)
+            scrollRequest++
             hasMore = repository.history(id)
             reloadLocal()
         }
@@ -296,18 +381,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun older() = action {
         val id = conversationId ?: return@action
         val before = messages.filterNot { it.pending }.minOfOrNull { it.seq }
-        hasMore = repository.history(id, before); reloadLocal()
+        hasMore = repository.history(id, before)
+        pageBefore = before ?: Long.MAX_VALUE; windowFirst = null; windowLast = null; browsingHistory = true
+        reloadLocal(); scrollRequest++
     }
     fun send(text: String, clear: () -> Unit) = action {
         val id = conversationId ?: return@action
-        try { repository.send(id, text); repository.sync() } finally { clear(); reloadLocal() }
+        draftJob?.cancelAndJoin()
+        try { repository.send(id, text, reply = quote) { queuedDraft(); withContext(Dispatchers.Main.immediate) { clear() } }; repository.sync() }
+        finally { reloadLocal() }
     }
     fun retry(id: String) = action { try { repository.retry(id); repository.sync() } finally { reloadLocal() } }
     fun discard(id: String) = action { repository.discard(id); reloadLocal() }
     fun deleteConversation(id: String) = action {
-        repository.deleteConversation(id)
+        draftJob?.cancelAndJoin(); repository.deleteConversation(id)
         if (conversationId == id) {
-            conversationId = null; messages = emptyList(); preview = null; pendingSelection = null; hasMore = false
+            conversationId = null; messages = emptyList(); draftText = ""; quote = null; preview = null; pendingSelection = null; hasMore = false
         }
         screen = "home"; reloadLocal()
     }
@@ -321,7 +410,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         try {
             val file = repository.upload(selection.first, selection.second) { value -> viewModelScope.launch { transfer = value } }
             pendingSelection = null
-            repository.send(id, attachment = file); repository.sync()
+            draftJob?.cancelAndJoin()
+            repository.send(id, attachment = file, reply = quote) { queuedDraft() }; repository.sync()
         } finally { transfer = null; reloadLocal() }
     }
     fun openFile(message: ChatMessage) = action {

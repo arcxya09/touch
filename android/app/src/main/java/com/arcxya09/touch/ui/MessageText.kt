@@ -46,8 +46,9 @@ internal fun messageLinks(text: String): List<MessageLink> {
 }
 
 /** Native selection handles/menu; annotations keep the copied text identical to the message. */
-@Composable internal fun MessageText(text: String, openLink: (String) -> Unit, modifier: Modifier = Modifier) {
+@Composable internal fun MessageText(text: String, openLink: (String) -> Unit, modifier: Modifier = Modifier, onLongPress: (() -> Unit)? = null) {
     val links = remember(text) { messageLinks(text) }
+    val currentLongPress by rememberUpdatedState(onLongPress)
     val currentOpen by rememberUpdatedState(openLink)
     var layout by remember(text) { mutableStateOf<TextLayoutResult?>(null) }
     val style = SpanStyle(color = MaterialTheme.colorScheme.primary, textDecoration = TextDecoration.Underline)
@@ -85,13 +86,16 @@ internal fun messageLinks(text: String): List<MessageLink> {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Final)
                         var cancelled = false
+                        var moved = false
                         do {
                             val event = awaitPointerEvent(PointerEventPass.Final)
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop) moved = true
                             if (event.changes.count { it.pressed } > 1 ||
                                 (change.position - down.position).getDistance() > viewConfiguration.touchSlop ||
                                 change.uptimeMillis - down.uptimeMillis >= viewConfiguration.longPressTimeoutMillis) cancelled = true
                             if (!change.pressed) {
+                                if (!moved && change.uptimeMillis - down.uptimeMillis >= viewConfiguration.longPressTimeoutMillis) currentLongPress?.invoke()
                                 if (!cancelled) layout?.let { result ->
                                     val caret = result.getOffsetForPosition(down.position)
                                     val offset = listOf(caret, caret - 1).firstOrNull {

@@ -11,7 +11,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.shape.CircleShape
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -69,6 +72,7 @@ import java.util.Locale
             else vm.screen = if (vm.screen == "preview") "chat" else "home"
         }
         BackHandler(enabled = vm.privacy && vm.mayShowChat && vm.screen == "home") { vm.hide() }
+        if (vm.mayShowChat && vm.showDiagnostics) DiagnosticsDialog(vm)
         if (vm.mayShowSession) {
             vm.error?.let { message ->
                 AlertDialog(onDismissRequest = { vm.error = null }, title = { Text("提示") }, text = { Text(message) },
@@ -110,12 +114,12 @@ import java.util.Locale
     }
 }
 
-@Composable private fun Header(title: String, back: (() -> Unit)? = null, status: String? = null, actions: @Composable RowScope.() -> Unit = {}) {
+@Composable private fun Header(title: String, back: (() -> Unit)? = null, status: String? = null, onStatus: (() -> Unit)? = null, actions: @Composable RowScope.() -> Unit = {}) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         if (back != null) IconButton(onClick = back) { Icon(Icons.Outlined.ArrowBack, "返回") }
         Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
             Text(title, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            status?.let { Text(it, Modifier.padding(start = 8.dp).testTag("connection-status"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            status?.let { Text(it, Modifier.padding(start = 8.dp).clickable(enabled = onStatus != null) { onStatus?.invoke() }.testTag("connection-status"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
         actions()
     }
@@ -182,7 +186,7 @@ import java.util.Locale
     var deleting by remember { mutableStateOf<Conversation?>(null) }
     deleting?.let { item -> DeleteConversationConfirm({ deleting = null }) { vm.deleteConversation(item.id); deleting = null } }
     Column(Modifier.fillMaxSize()) {
-        Header("消息", status = vm.connectionStatus.label) {
+        Header("消息", status = vm.connectionStatus.label, onStatus = vm::diagnostics) {
             IconButton(onClick = { vm.screen = "contacts" }) { Icon(Icons.Outlined.PersonAdd, "联系人") }
             IconButton(onClick = { vm.screen = "settings" }) { Icon(Icons.Outlined.Settings, "设置") }
             IconButton(onClick = vm::hide) { Icon(Icons.Outlined.Timer, "返回番茄钟") }
@@ -293,11 +297,28 @@ import java.util.Locale
     val conversation = vm.conversations.firstOrNull { it.id == vm.conversationId }
     val peer = conversation?.peer ?: vm.contacts.firstOrNull { it.conversationId == vm.conversationId }?.peer
     // Chat text must never be serialized into Android's plaintext saved-instance state.
-    var draft by remember(vm.conversationId) { mutableStateOf("") }
+    val draft = vm.draftText
     var clear by remember { mutableStateOf(false) }
     val scroll = rememberLazyListState()
+    val dragging by scroll.interactionSource.collectIsDraggedAsState()
     val lastId = vm.messages.lastOrNull()?.id
-    LaunchedEffect(lastId) { if (vm.messages.isNotEmpty()) scroll.animateScrollToItem(vm.messages.size) }
+    var atBottom by remember { mutableStateOf(true) }
+    var newMessages by remember { mutableStateOf(false) }
+    LaunchedEffect(scroll) { snapshotFlow { !scroll.canScrollForward }.collect { atBottom = it; if (it) newMessages = false } }
+    LaunchedEffect(dragging, atBottom) { if (dragging && !atBottom) vm.holdHistory() }
+    val hasIncoming = (conversation?.last?.seq ?: 0L) > (vm.messages.filterNot { it.pending }.lastOrNull()?.seq ?: Long.MAX_VALUE)
+    LaunchedEffect(lastId) {
+        if (vm.messages.isNotEmpty()) {
+            if (atBottom && !vm.browsingHistory) scroll.animateScrollToItem(vm.messages.size)
+            else newMessages = true
+        }
+    }
+    LaunchedEffect(vm.scrollRequest) {
+        if (vm.messages.isNotEmpty()) {
+            val target = vm.highlightId?.let { id -> vm.messages.indexOfFirst { it.id == id }.takeIf { it >= 0 } }
+            scroll.scrollToItem(target?.plus(1) ?: if (vm.browsingHistory) 1 else vm.messages.size)
+        }
+    }
     LaunchedEffect(vm.conversationId) {
         snapshotFlow {
             val visible = scroll.layoutInfo.visibleItemsInfo.map { it.key }.toSet()
@@ -305,7 +326,7 @@ import java.util.Locale
         }.distinctUntilChanged().collect { vm.markVisibleRead(it) }
     }
     Column(Modifier.fillMaxSize()) {
-        Header(peer?.name ?: "聊天", { vm.screen = "home" }) {
+        Header(peer?.name ?: "聊天", { vm.screen = "home" }, status = vm.connectionStatus.label, onStatus = vm::diagnostics) {
             peer?.let { Avatar(it, vm) }
             IconButton(onClick = { clear = true }, enabled = !vm.busy) { Icon(Icons.Outlined.DeleteOutline, "删除会话") }
             IconButton(onClick = vm::hide) { Icon(Icons.Outlined.Lock, "隐藏聊天") }
@@ -315,26 +336,52 @@ import java.util.Locale
             item { if (vm.hasMore) TextButton(onClick = vm::older, enabled = !vm.busy, modifier = Modifier.fillMaxWidth()) { Text("加载更早消息") } }
             items(vm.messages, key = { it.id }) { message -> MessageBubble(message, vm, activity::openWebLink) }
         }
+        if (newMessages || hasIncoming || vm.browsingHistory) TextButton(onClick = { vm.latest(); newMessages = false }, modifier = Modifier.fillMaxWidth()) { Text(if (newMessages || hasIncoming) "有新消息 · 返回最新" else "返回最新消息") }
+        vm.quote?.let { ref ->
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) { QuotePreview(ref, vm.conversationId.orEmpty(), vm, clickable = false) }
+                IconButton(onClick = vm::cancelQuote) { Icon(Icons.Outlined.Close, "取消引用") }
+            }
+        }
         if (conversation?.canSend == false) Text("当前无法发送，请先建立有效联系人关系。", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
         else Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.Bottom) {
             Column {
                 IconButton(onClick = activity::chooseImage, enabled = !vm.busy) { Icon(Icons.Outlined.Image, "发送图片") }
                 IconButton(onClick = activity::chooseDocument, enabled = !vm.busy) { Icon(Icons.Outlined.AttachFile, "发送文件") }
             }
-            OutlinedTextField(draft, { draft = it.take(10000) }, Modifier.weight(1f), placeholder = { Text("输入消息") }, maxLines = 5, shape = RoundedCornerShape(20.dp))
-            IconButton(onClick = { vm.send(draft) { draft = "" } }, enabled = draft.isNotBlank() && !vm.busy) { Icon(Icons.Outlined.Send, "发送") }
+            OutlinedTextField(draft, vm::editDraft, Modifier.weight(1f), placeholder = { Text("输入消息") }, maxLines = 5, shape = RoundedCornerShape(20.dp))
+            IconButton(onClick = { vm.send(draft) {} }, enabled = draft.isNotBlank() && !vm.busy) { Icon(Icons.Outlined.Send, "发送") }
         }
     }
     if (clear) DeleteConversationConfirm({ clear = false }) { vm.conversationId?.let(vm::deleteConversation); clear = false }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable private fun MessageBubble(message: ChatMessage, vm: AppViewModel, openLink: (String) -> Unit) {
     val own = message.senderId == vm.user?.id
+    var menu by remember(message.id) { mutableStateOf(false) }
+    val valid = !message.pending && message.createdAt > vm.visibilityFloor
+    val clipboard = androidx.compose.ui.platform.LocalClipboard.current
+    val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (own) Alignment.End else Alignment.Start) {
-        Surface(shape = RoundedCornerShape(18.dp), color = if (own) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-            modifier = Modifier.widthIn(max = 310.dp).then(if (message.file != null && !message.pending) Modifier.clickable(enabled = !vm.busy) { vm.openFile(message) } else Modifier)) {
+        Surface(shape = RoundedCornerShape(18.dp), color = if (vm.highlightId == message.id) MaterialTheme.colorScheme.tertiaryContainer else if (own) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier.widthIn(max = 310.dp).then(if (message.file != null && !message.pending) Modifier.combinedClickable(enabled = !vm.busy, onClick = { vm.openFile(message) }, onLongClick = { if (valid) menu = true }) else Modifier)) {
             Column(Modifier.padding(14.dp)) {
-                if (message.kind == "text") MessageText(message.text, openLink, Modifier.testTag("message-text-${message.id}"))
+                message.replyTo?.let { QuotePreview(it, message.conversationId, vm) }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    DropdownMenuItem(text = { Text("引用回复") }, enabled = valid, onClick = { vm.quoteMessage(message); menu = false })
+                    if (message.kind == "text") {
+                        DropdownMenuItem(text = { Text("复制全文") }, onClick = {
+                            scope.launch {
+                                val clip = android.content.ClipData.newPlainText("", message.text)
+                                clip.description.extras = android.os.PersistableBundle().apply { putBoolean("android.content.extra.IS_SENSITIVE", true) }
+                                clipboard.setClipEntry(androidx.compose.ui.platform.ClipEntry(clip))
+                            }; menu = false
+                        })
+                        DropdownMenuItem(text = { Text("继续选择文字") }, onClick = { menu = false })
+                    }
+                }
+                if (message.kind == "text") MessageText(message.text, openLink, Modifier.testTag("message-text-${message.id}"), onLongPress = { if (valid) menu = true })
                 else {
                     if (message.kind == "image" && !message.pending) ChatImagePreview(message, vm)
                     else Icon(if (message.kind == "image") Icons.Outlined.Image else Icons.Outlined.Description, null)
@@ -344,8 +391,8 @@ import java.util.Locale
             }
         }
         if (message.pending) Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("待发送", style = MaterialTheme.typography.labelSmall)
-            TextButton(onClick = { vm.retry(message.id) }, enabled = !vm.busy) { Text("重试") }
+            Text(if (message.id in vm.sendingIds) "发送中" else "发送失败", style = MaterialTheme.typography.labelSmall)
+            TextButton(onClick = { vm.retry(message.id) }, enabled = !vm.busy && message.id !in vm.sendingIds) { Text("重试") }
             TextButton(onClick = { vm.discard(message.id) }, enabled = !vm.busy) { Text("删除") }
         } else Row(verticalAlignment = Alignment.CenterVertically) {
             Text(SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date(message.createdAt * 1000)) + if (own) " · 已发送" else "",
@@ -369,6 +416,11 @@ import java.util.Locale
         Column(Modifier.verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
             vm.user?.let { Avatar(it, vm) }
             TextButton(onClick = { vm.screen = "notifications" }) { Text("通知与后台运行") }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("本机加密草稿", Modifier.weight(1f))
+                Switch(checked = vm.saveDrafts, onCheckedChange = vm::enableDrafts, enabled = !vm.busy)
+            }
+            Text("默认关闭。开启后仅加密保存文字和引用标识，不保存附件选择；定时销毁同时适用于草稿。", style = MaterialTheme.typography.bodySmall)
             TextButton(onClick = { vm.screen = "profile" }) { Text("编辑个人资料") }
             Text(vm.user?.name.orEmpty(), style = MaterialTheme.typography.headlineSmall)
             Text("@${vm.user?.username}", color = MaterialTheme.colorScheme.onSurfaceVariant)
