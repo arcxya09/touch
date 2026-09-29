@@ -92,8 +92,12 @@ class ReplyFeatureTest {
             assertTrue(vm.draftText.isEmpty()); assertNull(repo.draft(cid))
             val reply = vm.messages.last { it.text == "encrypted-draft-109" }
             assertEquals(original.id, reply.replyTo?.id)
-            scenario.onActivity { vm.locate(reply.replyTo!! ) }
-            compose.waitUntil(10000) { !vm.busy && vm.browsingHistory }
+            repo.api.json("/__fixture/control", "POST", JSONObject().put("http_fail", true))
+            try {
+                scenario.onActivity { vm.locate(reply.replyTo!!) }
+                compose.waitUntil(10000) { !vm.busy && vm.browsingHistory }
+                assertNull(vm.error)
+            } finally { repo.api.json("/__fixture/control", "POST", JSONObject().put("http_fail", false)) }
             assertTrue(vm.messages.any { it.id == original.id })
             assertTrue(vm.messages.size <= 50)
             // Expired references cannot be rehydrated, and a failed preflight must retain input.

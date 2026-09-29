@@ -109,6 +109,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun locate(ref: ReplyRef) = action {
         val cid = conversationId ?: return@action
+        check(withContext(Dispatchers.IO) { repository.visible(cid, ref) }) { "原消息不可用" }
+        if (messages.any { it.id == ref.id && !it.pending && it.createdAt > visibilityFloor }) {
+            holdHistory(); highlightId = ref.id; scrollRequest++
+            viewModelScope.launch { delay(1800); if (highlightId == ref.id) highlightId = null }
+            return@action
+        }
         val rows = repository.locate(cid, ref)
         check(rows.any { it.id == ref.id }) { "原消息不可用" }
         windowFirst = rows.minOf { it.seq }; windowLast = rows.maxOf { it.seq }; browsingHistory = true
