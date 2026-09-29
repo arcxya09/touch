@@ -19,42 +19,59 @@ import kotlin.coroutines.resumeWithException
 class Api(private val secure: SecureStore) {
     val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS)
         .pingInterval(25, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).writeTimeout(120, TimeUnit.SECONDS).build()
+    private val jsonClient = client.newBuilder().callTimeout(20, TimeUnit.SECONDS).build()
+    val socketClient = client.newBuilder().pingInterval(10, TimeUnit.SECONDS).build()
     @Volatile var session: JSONObject? = null
         private set
     private val refreshLock = Mutex()
     val user: Person? get() = session?.optJSONObject("user")?.let(Person::parse)
 
     suspend fun load() { session = secure.read("session")?.let(::JSONObject) }
-    suspend fun save(value: JSONObject?) { secure.write("session", value?.toString()); session = value }
+    suspend fun save(value: JSONObject?) = refreshLock.withLock { saveLocked(value) }
+    private suspend fun saveLocked(value: JSONObject?) { secure.write("session", value?.toString()); session = value }
+    suspend fun updateUser(value: JSONObject) = refreshLock.withLock {
+        session?.takeIf { it.getJSONObject("user").getString("id") == value.getString("id") }?.let {
+            saveLocked(JSONObject(it.toString()).put("user", value))
+        }
+    }
 
-    suspend fun execute(request: Request): Response = suspendCancellableCoroutine { continuation ->
-        val call = client.newCall(request)
+    suspend fun execute(request: Request, transport: OkHttpClient = client): Response = suspendCancellableCoroutine { continuation ->
+        val call = transport.newCall(request)
         continuation.invokeOnCancellation { call.cancel() }
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) { if (continuation.isActive) continuation.resumeWithException(e) }
             override fun onResponse(call: Call, response: Response) {
-                if (continuation.isActive) continuation.resume(response) else response.close()
+                if (continuation.isActive) continuation.resume(response) { _, value, _ -> value.close() } else response.close()
             }
         })
     }
 
-    suspend fun response(path: String, method: String = "GET", body: RequestBody? = null, authenticated: Boolean = true): Response = withContext(Dispatchers.IO) {
-        val originalToken = session?.optString("access_token")
+    suspend fun response(path: String, method: String = "GET", body: RequestBody? = null, authenticated: Boolean = true, bounded: Boolean = false): Response = withContext(Dispatchers.IO) {
+        val owner = user?.id
+        val transport = if (bounded) jsonClient else client
         fun request() = Request.Builder().url(BuildConfig.API_BASE + path).method(method, body).apply {
             if (authenticated) session?.optString("access_token")?.let { header("Authorization", "Bearer $it") }
         }.build()
-        var result = execute(request())
-        if (authenticated && result.code == 401 && result.header("X-Auth-Reason") == "expired") {
-            result.close()
-            refreshLock.withLock {
-                if (session?.optString("access_token") == originalToken) {
+        val first = request()
+        val originalToken = first.header("Authorization")?.removePrefix("Bearer ")
+        var result = execute(first, transport)
+        if (authenticated && result.code == 401) {
+            val expired = result.header("X-Auth-Reason") == "expired"
+            // Wait for any in-flight refresh before deciding whether "revoked" is final.
+            val retry = try { refreshLock.withLock {
+                if (user?.id != owner || session == null) false
+                else if (session?.optString("access_token") != originalToken) true
+                else if (expired) {
+                    result.close()
                     val refresh = session?.optString("refresh_token") ?: throw ApiException(401, "请重新登录")
                     val renewed = json("/api/v1/auth/refresh", "POST", JSONObject().put("refresh_token", refresh), false)
-                    save(renewed)
-                }
-            }
-            result = execute(request())
+                    saveLocked(renewed)
+                    true
+                } else false
+            } } catch (e: Exception) { result.close(); throw e }
+            if (retry) { result.close(); result = execute(request(), transport) }
         }
+
         if (!result.isSuccessful) {
             val text = result.body?.string().orEmpty()
             val error = runCatching { JSONObject(text).opt("detail") }.getOrNull()
@@ -73,7 +90,7 @@ class Api(private val secure: SecureStore) {
 
     suspend fun text(path: String, method: String = "GET", json: JSONObject? = null, auth: Boolean = true): String = withContext(Dispatchers.IO) {
         val body = if (method != "GET") (json ?: JSONObject()).toString().toRequestBody("application/json".toMediaType()) else null
-        response(path, method, body, auth).use { it.body?.string().orEmpty() }
+        response(path, method, body, auth, bounded = true).use { it.body?.string().orEmpty() }
     }
     suspend fun json(path: String, method: String = "GET", json: JSONObject? = null, auth: Boolean = true) = JSONObject(text(path, method, json, auth))
     fun closeConnections() { client.dispatcher.cancelAll() }

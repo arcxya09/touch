@@ -33,6 +33,18 @@ class Repository(private val context: Context, private val database: () -> Touch
     val api = Api(secure)
     private val syncLock = Mutex()
     private val cache get() = db.cache()
+    val connection = ConnectionHealth { android.os.SystemClock.elapsedRealtime() }
+    private val networkManager = context.getSystemService(android.net.ConnectivityManager::class.java)
+    private var network: android.net.Network? = null
+    private val networkCallback = object : android.net.ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(value: android.net.Network) { synchronized(this@Repository) {
+            if (network != value) { network = value; recheck() }
+        } }
+        override fun onLost(value: android.net.Network) { synchronized(this@Repository) {
+            if (network == value) { network = null; recheck() }
+        } }
+    }
+    init { networkManager.registerDefaultNetworkCallback(networkCallback) }
     private var socket: WebSocket? = null
     private var socketToken: String? = null
     private var socketEvent: (() -> Unit)? = null
@@ -147,10 +159,10 @@ class Repository(private val context: Context, private val database: () -> Touch
     }
     suspend fun updatePassword(old: String, new: String) {
         val user = api.json("/api/v1/auth/password", "POST", JSONObject().put("current_password", old).put("new_password", new))
-        api.session?.let { api.save(JSONObject(it.toString()).put("user", user)) }
+        api.updateUser(user)
     }
     private suspend fun acceptUser(user: JSONObject) {
-        api.session?.let { api.save(JSONObject(it.toString()).put("user", user)) }
+        api.updateUser(user)
     }
     suspend fun updateProfile(name: String, bio: String) = syncLock.withLock {
         acceptUser(api.json("/api/v1/auth/profile", "PATCH", JSONObject().put("display_name", name.trim()).put("bio", bio.trim())))
@@ -226,13 +238,15 @@ class Repository(private val context: Context, private val database: () -> Touch
         cache.remove("conversation", cid)
     }
     suspend fun sync() = syncLock.withLock { withContext(Dispatchers.IO) {
+        val generation = connection.begin()
+        try {
         purge()
-        if (api.user == null || api.user?.mustChange == true) return@withContext
+        if (api.user == null || api.user?.mustChange == true) { connection.failure(generation); return@withContext }
         // Web profile edits and receipt preferences also refresh existing sessions.
         acceptUser(api.json("/api/v1/auth/me"))
         val incoming = ArrayDeque<ChatMessage>()
+        var cursor = cache.get("meta", "cursor")?.json?.toLongOrNull() ?: 0L
         do {
-            val cursor = cache.get("meta", "cursor")?.json?.toLongOrNull() ?: 0L
             val result = api.json("/api/v1/sync?cursor=$cursor&after_time=${cutoff()}")
             db.runInTransaction {
                 val events = result.getJSONArray("events")
@@ -251,12 +265,13 @@ class Repository(private val context: Context, private val database: () -> Touch
                             else clearMessages(payload.getString("conversation_id"), payload.getLong("seq"))
                     }
                 }
-                cache.put(TouchDatabase.Item("meta", "cursor", result.getLong("cursor").toString()))
             }
+            cursor = result.getLong("cursor")
         } while (result.getBoolean("has_more"))
         val conversations = JSONArray(api.text("/api/v1/conversations?after_time=${cutoff()}"))
         val contacts = JSONArray(api.text("/api/v1/contacts"))
         db.runInTransaction {
+            cache.put(TouchDatabase.Item("meta", "cursor", cursor.toString()))
             cache.removeKind("conversation"); cache.removeKind("contact")
             for (i in 0 until conversations.length()) {
                 val item = conversations.getJSONObject(i)
@@ -278,6 +293,8 @@ class Repository(private val context: Context, private val database: () -> Touch
                 message.seq > conversation.optLong("read_seq") && message.seq > conversation.optLong("clear_seq")
         }
         if (eligible.isNotEmpty()) onIncoming?.invoke(eligible)
+        connection.success(generation, cache.get("meta", "cursor")?.json?.toLongOrNull() ?: 0L)
+        } catch (e: Exception) { connection.failure(generation); throw e }
     } }
     suspend fun history(cid: String, before: Long? = null): Boolean = syncLock.withLock { withContext(Dispatchers.IO) {
         purge()
@@ -409,20 +426,37 @@ class Repository(private val context: Context, private val database: () -> Touch
         disconnect()
         socketEvent = onEvent
         socketToken = access
+        connection.opening()
         val url = BuildConfig.API_BASE.replaceFirst("https://", "wss://").replaceFirst("http://", "ws://") + "/ws"
-        socket = api.client.newWebSocket(Request.Builder().url(url).header("Authorization", "Bearer $access").build(), object : WebSocketListener() {
-            override fun onMessage(webSocket: WebSocket, text: String) { synchronized(this@Repository) {
-                if (socket === webSocket) socketEvent?.invoke()
+        socket = api.socketClient.newWebSocket(Request.Builder().url(url).header("Authorization", "Bearer $access").build(), object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) { synchronized(this@Repository) {
+                if (socket === webSocket) { connection.opened(); socketEvent?.invoke() }
             } }
-            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, reason) }
+            override fun onMessage(webSocket: WebSocket, text: String) { synchronized(this@Repository) {
+                if (socket === webSocket) {
+                    val cursor = runCatching { JSONObject(text).getLong("cursor") }.getOrNull()
+                    if (cursor != null) connection.event(cursor)
+                    socketEvent?.invoke()
+                }
+            } }
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { ended(webSocket); webSocket.close(code, reason) }
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) = ended(webSocket)
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) = ended(webSocket)
             private fun ended(webSocket: WebSocket) { synchronized(this@Repository) {
-                if (socket === webSocket) { socket = null; socketToken = null; socketEvent?.invoke() }
+                if (socket === webSocket) { socket = null; socketToken = null; connection.invalidate(); socketEvent?.invoke() }
             } }
         })
     }
-    @Synchronized fun disconnect() { val old = socket; socket = null; socketToken = null; socketEvent = null; old?.cancel() }
+    @Synchronized fun disconnect(keepListener: Boolean = false) {
+        val old = socket; socket = null; socketToken = null; if (!keepListener) socketEvent = null
+        connection.invalidate(); old?.cancel()
+    }
+    @Synchronized fun recheck() {
+        val wake = socketEvent
+        disconnect()
+        socketEvent = wake
+        wake?.invoke()
+    }
     fun stop() { disconnect(); api.closeConnections() }
 }
 

@@ -182,7 +182,7 @@ import java.util.Locale
     var deleting by remember { mutableStateOf<Conversation?>(null) }
     deleting?.let { item -> DeleteConversationConfirm({ deleting = null }) { vm.deleteConversation(item.id); deleting = null } }
     Column(Modifier.fillMaxSize()) {
-        Header("消息", status = if (vm.connected) "已同步" else "连接中") {
+        Header("消息", status = vm.connectionStatus.label) {
             IconButton(onClick = { vm.screen = "contacts" }) { Icon(Icons.Outlined.PersonAdd, "联系人") }
             IconButton(onClick = { vm.screen = "settings" }) { Icon(Icons.Outlined.Settings, "设置") }
             IconButton(onClick = vm::hide) { Icon(Icons.Outlined.Timer, "返回番茄钟") }

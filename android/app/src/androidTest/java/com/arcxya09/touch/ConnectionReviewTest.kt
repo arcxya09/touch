@@ -58,7 +58,7 @@ class ConnectionReviewTest {
     assertFalse(AlertService.running); assertTrue(vm.connected)
     assertTrue(syncJob(vm)?.isActive == true)
     app.repository.sync()
-    assertTrue(vm.connected)
+    compose.waitUntil(15000) { vm.connected }
    }
   } finally {
    app.alertSettings.disable()

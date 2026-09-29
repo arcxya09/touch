@@ -28,6 +28,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val attempts = app.getSharedPreferences("gesture_attempts", Application.MODE_PRIVATE)
     private var pattern = ""
     private var syncJob: Job? = null
+    private var resumeJob: Job? = null
     private var work: Job? = null
     private var updateJob: Job? = null
     private var foreground = false
@@ -56,7 +57,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     var error by mutableStateOf<String?>(null)
     var busy by mutableStateOf(false); private set
     var transfer by mutableStateOf<Float?>(null); private set
-    var connected by mutableStateOf(false); private set
+    var connectionStatus by mutableStateOf(ConnectionStatus.CONNECTING); private set
+    val connected get() = connectionStatus == ConnectionStatus.LIVE
+    private fun refreshConnectionStatus() {
+        connectionStatus = if (foreground && mayShowChat) repository.connection.status() else ConnectionStatus.CONNECTING
+    }
     var foundPerson by mutableStateOf<Person?>(null); private set
     var preview by mutableStateOf<Pair<FileItem, EncryptedAttachment>?>(null); private set
     var retentionEnabled by mutableStateOf(false); private set
@@ -77,6 +82,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val mayShowSession get() = initialized && cacheReady && !storageError && (!privacy || !locked)
 
     init {
+        viewModelScope.launch { repository.connection.state.collect { refreshConnectionStatus() } }
         // A timer that expired while this process was absent must not ring on reopening.
         pomodoro.schedule()
         viewModelScope.launch {
@@ -110,6 +116,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val state = pomodoro.state()
                 if (state.running && state.remainingMs == 0L) pomodoro.finish(true)
                 timer = pomodoro.state()
+                refreshConnectionStatus()
                 if (initialized && foreground && !storageError) {
                     try {
                         alertOptions = withContext(Dispatchers.IO) { app.alertSettings.read() }
@@ -132,20 +139,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         foreground = true
         if (!initialized || storageError) return
         cacheReady = false
-        viewModelScope.launch {
+        resumeJob?.cancel()
+        resumeJob = viewModelScope.launch {
             try { repository.purge(); reloadLocal(); cacheReady = true; if (foreground && mayShowChat) startForegroundWork() }
-            catch (_: Exception) { storageError = true }
+            catch (e: Exception) { if (e is CancellationException) throw e; storageError = true }
         }
     }
     fun background() {
         foreground = false
+        resumeJob?.cancel()
         app.alerts.chatVisible = false
         cacheReady = false
         if (privacy) locked = true
         showUpdate = false
         syncJob?.cancel(); work?.cancel(); updateJob?.cancel()
         if (!AlertService.running) repository.stop()
-        busy = false; transfer = null; updateProgress = null; connected = false
+        busy = false; transfer = null; updateProgress = null; connectionStatus = ConnectionStatus.CONNECTING
         preview = null
         if (screen == "preview") screen = if (conversationId != null) "chat" else "home"
     }
@@ -219,33 +228,42 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         autoUpdate()
         if (user == null || user?.mustChange == true || syncJob?.isActive == true) return
+        // Never inherit yesterday's success when returning from the background.
+        repository.recheck()
+        AlertService.wake()
         syncJob = viewModelScope.launch {
+            val wake = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
             var lastServiceAttempt = -60000L
-            while (isActive && foreground && mayShowChat) {
-                try {
-                    val options = withContext(Dispatchers.IO) { app.alertSettings.read() }
-                    alertOptions = options
-                    val now = android.os.SystemClock.elapsedRealtime()
-                    if (options.canRun(user?.id) && app.alerts.allowed() && !AlertService.running && now - lastServiceAttempt >= 60000) {
-                        lastServiceAttempt = now; AlertService.start(app)
-                    }
-                    if (AlertService.running) {
-                        connected = AlertService.connected; reloadLocal(); delay(1000); continue
-                    }
-                    repository.sync(); connected = true; reloadLocal()
-                    if (!AlertService.running) repository.connect {
-                        if (foreground && mayShowChat && !AlertService.running) launch {
-                            try { repository.sync(); connected = true; reloadLocal() } catch (e: Exception) { if (e is CancellationException) throw e; connected = false; handleError(e, false) }
+            var retry = 2000L
+            try {
+                while (isActive && foreground && mayShowChat) {
+                    try {
+                        val options = withContext(Dispatchers.IO) { app.alertSettings.read() }
+                        alertOptions = options
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        if (options.canRun(user?.id) && app.alerts.allowed() && !AlertService.running && now - lastServiceAttempt >= 60000) {
+                            lastServiceAttempt = now; AlertService.start(app)
                         }
+                        if (AlertService.running) {
+                            reloadLocal(); refreshConnectionStatus(); delay(1000); continue
+                        }
+                        // Connect before sync; any event arriving during sync stays in this one-slot queue.
+                        repository.connect { wake.trySend(Unit) }
+                        repository.sync(); reloadLocal(); refreshConnectionStatus()
+                        retry = if (repository.connection.state.value.socketOpen) 2000L else (retry * 2).coerceAtMost(15000)
+                        withTimeoutOrNull(15000) { wake.receive() }
+                        if (!repository.connection.state.value.socketOpen) delay(retry)
+                    } catch (e: Exception) {
+                        if (e is CancellationException) throw e
+                        repository.disconnect(keepListener = true); refreshConnectionStatus(); handleError(e, false)
+                        withTimeoutOrNull(retry) { wake.receive() }
+                        retry = (retry * 2).coerceAtMost(15000)
                     }
-                } catch (e: Exception) {
-                    if (e is CancellationException) throw e
-                    connected = false; handleError(e, false)
                 }
-                delay(15000)
-            }
+            } finally { wake.close() }
         }
     }
+
     private suspend fun reloadLocal() {
         if (user != null && repository.api.user == null) {
             app.alerts.chatVisible = false

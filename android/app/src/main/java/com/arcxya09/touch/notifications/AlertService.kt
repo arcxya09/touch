@@ -29,7 +29,7 @@ class AlertService : Service() {
         super.onCreate()
         ServiceCompat.startForeground(this, AlertNotifications.RUNNING_ID, app.alerts.running(),
             if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0)
-        running = true
+        running = true; active = this
         ReminderTileService.refresh(this)
         ContextCompat.registerReceiver(this, screen, IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED)
         getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(network)
@@ -44,18 +44,18 @@ class AlertService : Service() {
                     val options = withContext(Dispatchers.IO) { app.alertSettings.read() }
                     if (!options.canRun(app.repository.api.user?.id) || app.repository.api.user?.mustChange == true || !app.alerts.allowed()) break
                     try {
-                        app.repository.sync()
-                        connected = true; retry = 2000L
                         app.repository.connect { wake.trySend(Unit) }
+                        app.repository.sync()
+                        retry = if (app.repository.connection.state.value.socketOpen) 2000L else (retry * 2).coerceAtMost(30000)
                         withTimeoutOrNull(30000) { wake.receive() }
+                        if (!app.repository.connection.state.value.socketOpen) delay(retry)
                     } catch (e: Exception) {
                         if (e is CancellationException) throw e
-                        connected = false
                         if (e is ApiException && e.status == 401) {
                             withContext(NonCancellable) { app.repository.logout(false) }
                             break
                         }
-                        app.repository.disconnect()
+                        app.repository.disconnect(keepListener = true)
                         withTimeoutOrNull(retry) { wake.receive() }
                         retry = (retry * 2).coerceAtMost(60000)
                     }
@@ -68,7 +68,7 @@ class AlertService : Service() {
         return START_STICKY
     }
     override fun onDestroy() {
-        running = false; connected = false
+        running = false; active = null
         app.repository.onIncoming = null
         scope.cancel()
         app.repository.disconnect()
@@ -82,7 +82,9 @@ class AlertService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
     companion object {
         @Volatile var running = false; private set
-        @Volatile var connected = false; private set
+        @Volatile private var active: AlertService? = null
+        val connected get() = active?.app?.repository?.connection?.status() == com.arcxya09.touch.data.ConnectionStatus.LIVE
+        fun wake() { active?.wake?.trySend(Unit) }
         fun start(context: Context): Boolean = runCatching {
             ContextCompat.startForegroundService(context, Intent(context, AlertService::class.java)) != null
         }.getOrDefault(false)
