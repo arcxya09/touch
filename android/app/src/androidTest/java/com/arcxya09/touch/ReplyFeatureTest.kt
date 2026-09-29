@@ -61,6 +61,14 @@ class ReplyFeatureTest {
             compose.waitUntil(15000) { !vm.busy && vm.messages.any { it.text == "quote-original-109" } }
             val original = vm.messages.last { it.text == "quote-original-109" }
             compose.onNodeWithTag("message-text-${original.id}").performTouchInput { longClick() }
+            compose.onNodeWithText("选择文字").performClick()
+            compose.onNodeWithTag("message-text-${original.id}").performTouchInput { longClick() }
+            val device = androidx.test.uiautomator.UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+            val copy = androidx.test.uiautomator.By.text(java.util.regex.Pattern.compile("Copy|复制"))
+            assertTrue(device.wait(androidx.test.uiautomator.Until.hasObject(copy), 5000))
+            device.findObject(copy).click()
+            compose.onNodeWithText("完成选择").performClick()
+            compose.onNodeWithTag("message-text-${original.id}").performTouchInput { longClick() }
             compose.onNodeWithText("引用回复").performClick()
             assertEquals(original.id, vm.quote?.id)
             compose.onNodeWithContentDescription("取消引用").performClick()

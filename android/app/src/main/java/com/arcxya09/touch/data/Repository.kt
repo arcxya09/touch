@@ -94,11 +94,16 @@ class Repository(private val context: Context, private val database: () -> Touch
         var changed = false
         val removeFiles = mutableSetOf<String>()
         db.runInTransaction {
-            cache.expired("message", floor).forEach {
-                if (it.attachmentId.isNotBlank()) removeFiles.add(it.attachmentId)
-                cache.remove("message", it.id); changed = true
+            for (kind in listOf("message", "draft", "attachment")) {
+                do {
+                    val expired = cache.expired(kind, floor)
+                    expired.forEach {
+                        if (it.attachmentId.isNotBlank()) removeFiles.add(it.attachmentId)
+                        if (kind == "attachment") removeFiles.add(it.id)
+                        cache.remove(kind, it.id); changed = true
+                    }
+                } while (expired.size == 500)
             }
-            cache.expired("draft", floor).forEach { cache.remove("draft", it.id); changed = true }
             cache.pendingItems().forEach {
                 if (it.createdAt <= floor) {
                     JSONObject(it.body).optString("attachment_id").takeIf(String::isNotBlank)?.let(removeFiles::add)
@@ -112,9 +117,6 @@ class Repository(private val context: Context, private val database: () -> Touch
                     json.put("last_message", JSONObject.NULL).put("unread", 0)
                     cache.put(TouchDatabase.Item("conversation", it.id, json.toString())); changed = true
                 }
-            }
-            cache.expired("attachment", floor).forEach {
-                removeFiles.add(it.id); cache.remove("attachment", it.id); changed = true
             }
             removeFiles.forEach { cache.remove("attachment", it) }
         }

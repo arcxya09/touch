@@ -64,6 +64,18 @@ class ReplyStorageTest {
             assertEquals(4, db.cache().expired("message", 4).size)
             assertEquals(50, db.cache().window("a", 20000, 20100, 0).size)
             assertTrue(db.cache().page("a", 100, 100).isEmpty())
+            val start = android.os.SystemClock.elapsedRealtime()
+            var removed = 0
+            db.runInTransaction {
+                do {
+                    val expired = db.cache().expired("message", 50000)
+                    assertTrue(expired.size <= 500)
+                    expired.forEach { db.cache().remove("message", it.id); removed++ }
+                } while (expired.size == 500)
+            }
+            assertEquals(50000, removed)
+            assertTrue(db.cache().page("a", Long.MAX_VALUE, 0).isEmpty())
+            android.util.Log.i("TouchTest", "expired=50000 cleanupMs=${android.os.SystemClock.elapsedRealtime()-start}")
         } finally { db.close(); app.deleteDatabase(name) }
     }
 }

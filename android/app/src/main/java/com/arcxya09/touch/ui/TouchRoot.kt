@@ -360,6 +360,7 @@ import java.util.Locale
 @Composable private fun MessageBubble(message: ChatMessage, vm: AppViewModel, openLink: (String) -> Unit) {
     val own = message.senderId == vm.user?.id
     var menu by remember(message.id) { mutableStateOf(false) }
+    var selecting by remember(message.id) { mutableStateOf(false) }
     val valid = !message.pending && message.createdAt > vm.visibilityFloor
     val clipboard = androidx.compose.ui.platform.LocalClipboard.current
     val scope = rememberCoroutineScope()
@@ -378,10 +379,10 @@ import java.util.Locale
                                 clipboard.setClipEntry(androidx.compose.ui.platform.ClipEntry(clip))
                             }; menu = false
                         })
-                        DropdownMenuItem(text = { Text("继续选择文字") }, onClick = { menu = false })
+                        DropdownMenuItem(text = { Text("选择文字") }, onClick = { menu = false; selecting = true })
                     }
                 }
-                if (message.kind == "text") MessageText(message.text, openLink, Modifier.testTag("message-text-${message.id}"), onLongPress = { if (valid) menu = true })
+                if (message.kind == "text") MessageText(message.text, openLink, Modifier.testTag("message-text-${message.id}"), onLongPress = if (selecting) null else ({ if (valid) menu = true }))
                 else {
                     if (message.kind == "image" && !message.pending) ChatImagePreview(message, vm)
                     else Icon(if (message.kind == "image") Icons.Outlined.Image else Icons.Outlined.Description, null)
@@ -390,6 +391,7 @@ import java.util.Locale
                 }
             }
         }
+        if (selecting) TextButton(onClick = { selecting = false }) { Text("完成选择") }
         if (message.pending) Row(verticalAlignment = Alignment.CenterVertically) {
             Text(if (message.id in vm.sendingIds) "发送中" else "发送失败", style = MaterialTheme.typography.labelSmall)
             TextButton(onClick = { vm.retry(message.id) }, enabled = !vm.busy && message.id !in vm.sendingIds) { Text("重试") }

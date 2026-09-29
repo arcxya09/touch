@@ -3,6 +3,8 @@ package com.arcxya09.touch
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Text
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
@@ -46,7 +48,7 @@ class MessageInteractionTest {
 
     @Test fun tapOpensLinkButLongPressCopiesSelectedText() {
         var opened: String? = null
-        compose.setContent { TouchTheme { Column {
+        compose.setContent { TouchTheme { Column(Modifier.padding(top = 64.dp)) {
             MessageText("https://example.com", { opened = it }, Modifier.testTag("link"))
             MessageText("copyme", { opened = it }, Modifier.testTag("plain"))
         } } }
@@ -59,7 +61,7 @@ class MessageInteractionTest {
         compose.onNodeWithTag("plain").performTouchInput { longClick(center) }
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         val copy = By.text(java.util.regex.Pattern.compile("Copy|复制"))
-        assertTrue(device.wait(Until.hasObject(copy), 5000))
+        assertTrue("bounds=" + compose.onNodeWithTag("plain").fetchSemanticsNode().boundsInRoot + "; texts=" + device.findObjects(By.text(java.util.regex.Pattern.compile(".+"))).map { it.text }, device.wait(Until.hasObject(copy), 5000))
         device.findObject(copy).click()
         compose.waitForIdle()
         val context = ApplicationProvider.getApplicationContext<Context>()
