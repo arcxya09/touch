@@ -10,6 +10,7 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.arcxya09.touch.TouchApp
 import com.arcxya09.touch.data.ApiException
+import com.arcxya09.touch.data.ConnectionHealth
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 
@@ -47,7 +48,7 @@ class AlertService : Service() {
                         app.repository.connect { wake.trySend(Unit) }
                         app.repository.sync()
                         retry = if (app.repository.connection.state.value.socketOpen) 2000L else (retry * 2).coerceAtMost(30000)
-                        withTimeoutOrNull(30000) { wake.receive() }
+                        withTimeoutOrNull(if (app.repository.connection.state.value.socketOpen) ConnectionHealth.SYNC_FALLBACK_MS else retry) { wake.receive() }
                         if (!app.repository.connection.state.value.socketOpen) delay(retry)
                     } catch (e: Exception) {
                         if (e is CancellationException) throw e

@@ -311,8 +311,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         autoUpdate()
         if (user == null || user?.mustChange == true || syncJob?.isActive == true) return
-        // Never inherit yesterday's success when returning from the background.
-        repository.recheck()
+        // Refresh data on resume without tearing down a healthy shared socket.
+        refreshConnectionStatus()
         AlertService.wake()
         syncJob = viewModelScope.launch {
             val wake = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
@@ -334,7 +334,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         repository.connect { wake.trySend(Unit) }
                         repository.sync(); reloadLocal(); refreshConnectionStatus()
                         retry = if (repository.connection.state.value.socketOpen) 2000L else (retry * 2).coerceAtMost(15000)
-                        withTimeoutOrNull(15000) { wake.receive() }
+                        withTimeoutOrNull(if (repository.connection.state.value.socketOpen) ConnectionHealth.SYNC_FALLBACK_MS else retry) { wake.receive() }
                         if (!repository.connection.state.value.socketOpen) delay(retry)
                     } catch (e: Exception) {
                         if (e is CancellationException) throw e

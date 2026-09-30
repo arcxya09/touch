@@ -34,12 +34,12 @@ class ConnectionHealthTest {
         health.event(13)
         assertEquals(ConnectionStatus.SYNCING, health.status())
     }
-    @Test fun staleSuccessAndPartialFailureAreNeverLive() {
+    @Test fun idleSocketStaysLiveUntilTransportOrSyncFails() {
         var time = 1000L
         val health = ConnectionHealth { time }
         health.opened(); health.success(health.begin(), 10)
-        time += 45001
-        assertEquals(ConnectionStatus.RETRYING, health.status())
+        time += ConnectionHealth.SYNC_FALLBACK_MS * 2
+        assertEquals(ConnectionStatus.LIVE, health.status())
         health.failure(health.begin())
         assertEquals(ConnectionStatus.RETRYING, health.status())
     }
