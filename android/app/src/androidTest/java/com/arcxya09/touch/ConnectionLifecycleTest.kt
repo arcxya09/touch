@@ -67,6 +67,16 @@ class ConnectionLifecycleTest {
                 compose.waitUntil(30000) { vm.connected }
                 scenario.onActivity { vm.enableAlerts(true) }
                 compose.waitUntil(20000) { AlertService.running && AlertService.connected && !vm.busy }
+                // A foreground round trip must sync without replacing the service-owned socket.
+                val generation = repo.connection.state.value.generation
+                val reconnects = repo.connection.reconnects
+                scenario.moveToState(Lifecycle.State.CREATED)
+                delay(100)
+                val lastSync = repo.connection.lastSyncWall
+                scenario.moveToState(Lifecycle.State.RESUMED)
+                compose.waitUntil(20000) { vm.connected && repo.connection.lastSyncWall != lastSync }
+                assertEquals(generation, repo.connection.state.value.generation)
+                assertEquals(reconnects, repo.connection.reconnects)
                 scenario.moveToState(Lifecycle.State.CREATED)
                 control("http_fail" to true, "ws_reject" to true, "close" to true)
                 compose.waitUntil(10000) { !AlertService.connected }

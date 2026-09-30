@@ -9,6 +9,7 @@ enum class ConnectionStatus(val label: String) {
 
 /** A past HTTP success is not proof that the live connection still exists. */
 class ConnectionHealth(private val now: () -> Long) {
+    companion object { const val SYNC_FALLBACK_MS = 5 * 60 * 1000L }
     data class State(val generation: Long = 0, val socketOpen: Boolean = false,
         val syncing: Boolean = false, val failed: Boolean = false, val checkedAt: Long? = null,
         val cursor: Long = -1, val requiredCursor: Long = -1)
@@ -66,7 +67,7 @@ class ConnectionHealth(private val now: () -> Long) {
         if (s.failed) return ConnectionStatus.RETRYING
         if (!s.socketOpen) return ConnectionStatus.CONNECTING
         if (s.syncing || s.checkedAt == null || s.cursor < s.requiredCursor) return ConnectionStatus.SYNCING
-        if (now() - s.checkedAt !in 0..45000) return ConnectionStatus.RETRYING
+        // OkHttp ping/pong failures invalidate the socket; idle sync age is not a transport failure.
         return ConnectionStatus.LIVE
     }
 }
