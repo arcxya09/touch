@@ -75,14 +75,19 @@ class DataBoundaryTest {
             cache.put(TouchDatabase.Item("meta", "owner", owner)); repo.purge()
             repo.deleteLocalMessage(message)
             repo.clearLocalHistory()
+            val clearedThrough = cache.localCutoff(owner)!!.throughTime
             repo.clearLocal()
             assertTrue(cache.hidden(owner, message.id))
-            assertTrue(cache.localCutoff(owner)!!.throughTime >= now - 1)
+            assertTrue(clearedThrough >= now - 1)
+            assertEquals("Clearing the cache must preserve the account's cutoff", clearedThrough, cache.localCutoff(owner)!!.throughTime)
             assertFalse(cache.hidden("another-owner", message.id))
             cache.put(TouchDatabase.Item("meta", "owner", owner)); repo.purge()
             assertFalse(repo.visible("c", ReplyRef(message.id, 1, now)))
             assertFalse(repo.visible("c", ReplyRef("older", 2, now - 10)))
-            assertTrue(repo.visible("c", ReplyRef("new", 3, now + 1)))
+            // Database/Keystore work can span seconds. "New" is after the committed
+            // clear operation, not one second after the test started.
+            assertFalse("The cutoff second remains hidden", repo.visible("c", ReplyRef("at-cutoff", 3, clearedThrough)))
+            assertTrue("The next second is visible", repo.visible("c", ReplyRef("new", 4, clearedThrough + 1)))
             cache.put(TouchDatabase.Item("meta", "owner", "another-owner")); repo.purge()
             assertTrue(repo.visible("c", ReplyRef(message.id, 1, now)))
         }
