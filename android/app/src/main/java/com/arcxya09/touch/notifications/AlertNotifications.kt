@@ -48,9 +48,10 @@ class AlertNotifications(private val app: TouchApp) {
         val options = app.alertSettings.read()
         val owner = app.repository.api.user?.id
         if (!options.canRun(owner) || !AlertService.running || chatVisible || !allowed()) return
-        val latest = messages.lastOrNull { it.senderId != owner } ?: return
-        // Re-check local retention and personal deletion before publishing delayed events.
-        if (app.repository.messages(latest.conversationId).none { it.id == latest.id }) return
+        val candidate = messages.lastOrNull { it.senderId != owner && it.kind != "recalled" } ?: return
+        // Use current local content: a queued notification must not reveal a recalled message.
+        val latest = app.repository.messages(candidate.conversationId)
+            .firstOrNull { it.id == candidate.id && it.kind != "recalled" } ?: return
         val peer = app.repository.conversations().firstOrNull { it.id == latest.conversationId }?.peer
         val locked = app.getSystemService(KeyguardManager::class.java).isDeviceLocked ||
             !app.getSystemService(android.os.PowerManager::class.java).isInteractive

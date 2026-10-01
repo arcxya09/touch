@@ -402,6 +402,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         finally { reloadLocal() }
     }
     fun retry(id: String) = action { try { repository.retry(id); repository.sync() } finally { reloadLocal() } }
+    fun deleteLocalMessage(message: ChatMessage) = action {
+        repository.deleteLocalMessage(message)
+        if (quote?.id == message.id) { quote = null; persistDraft() }
+        preview = null; reloadLocal()
+    }
+    fun recallMessage(message: ChatMessage) = action {
+        repository.recallMessage(message)
+        if (quote?.id == message.id) { quote = null; persistDraft() }
+        preview = null; reloadLocal()
+    }
+    fun clearLocalHistory() = action {
+        draftJob?.cancelAndJoin()
+        repository.clearLocalHistory()
+        draftText = ""; quote = null; preview = null; pendingSelection = null; highlightId = null
+        pageBefore = Long.MAX_VALUE; windowFirst = null; windowLast = null; browsingHistory = false
+        hasMore = false; reloadLocal(); scrollRequest++
+    }
     fun discard(id: String) = action { repository.discard(id); reloadLocal() }
     fun deleteConversation(id: String) = action {
         draftJob?.cancelAndJoin(); repository.deleteConversation(id)

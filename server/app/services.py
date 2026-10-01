@@ -65,17 +65,19 @@ def conversation_json(db: Session, conversation: Conversation, user_id: str, aft
     peer_id = conversation.b if user_id == conversation.a else conversation.a
     peer = db.get(User, peer_id)
     contact = db.get(Contact, conversation.pair_key)
-    last = db.scalar(select(Message).where(Message.conversation_id == conversation.id, Message.seq > clear,
-                                          Message.created_at > after_time)
-                     .order_by(Message.seq.desc()).limit(1))
+    viewer = db.get(User, user_id)
+    last_query = select(Message).where(Message.conversation_id == conversation.id, Message.seq > clear,
+                                       Message.created_at > after_time)
+    if not viewer.is_admin:
+        last_query = last_query.where(Message.kind != "recalled")
+    last = db.scalar(last_query.order_by(Message.seq.desc()).limit(1))
     unread = db.scalar(select(func.count()).select_from(Message).where(
         Message.conversation_id == conversation.id, Message.seq > max(read, clear), Message.sender_id != user_id,
-        Message.created_at > after_time))
+        Message.created_at > after_time, Message.kind != "recalled"))
     result = {"id": conversation.id, "peer": user_json(peer), "unread": unread,
             "clear_seq": clear, "read_seq": read,
             "can_send": bool(contact and contact.state == "accepted" and peer.active),
             "last_message": message_json(db, last) if last else None}
-    viewer = db.get(User, user_id)
     if viewer.is_admin and viewer.read_receipts_enabled:
         result["peer_read_seq"] = conversation.b_read if user_id == conversation.a else conversation.a_read
     return result

@@ -45,6 +45,8 @@ public abstract class TouchDatabase extends RoomDatabase {
         @Query("SELECT EXISTS(SELECT 1 FROM items) + EXISTS(SELECT 1 FROM outbox)") kotlinx.coroutines.flow.Flow<Integer> changes();
         @Query("SELECT * FROM items WHERE kind='message' AND conversationId=:cid AND seq<:before AND createdAt>:floor ORDER BY seq DESC LIMIT 50") List<Item> page(String cid, long before, long floor);
         @Query("SELECT * FROM items WHERE kind='message' AND conversationId=:cid AND seq BETWEEN :first AND :last AND createdAt>:floor ORDER BY seq LIMIT 50") List<Item> window(String cid, long first, long last, long floor);
+        @Query("SELECT * FROM items WHERE kind='message' AND conversationId=:cid AND seq<:before AND createdAt>:floor AND (:showRecalled OR json_extract(json, '$.kind')!='recalled') ORDER BY seq DESC LIMIT 50") List<Item> visiblePage(String cid, long before, long floor, boolean showRecalled);
+        @Query("SELECT * FROM items WHERE kind='message' AND conversationId=:cid AND seq BETWEEN :first AND :last AND createdAt>:floor AND (:showRecalled OR json_extract(json, '$.kind')!='recalled') ORDER BY seq LIMIT 50") List<Item> visibleWindow(String cid, long first, long last, long floor, boolean showRecalled);
         @Query("SELECT * FROM items WHERE kind=:kind AND createdAt<=:floor LIMIT 500") List<Item> expired(String kind, long floor);
         @Query("SELECT * FROM items WHERE kind='message' AND conversationId=:cid AND seq<=:through") List<Item> cleared(String cid, long through);
         @Query("SELECT attachmentId FROM items WHERE attachmentId!=''") List<String> referencedFiles();

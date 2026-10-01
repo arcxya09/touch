@@ -286,6 +286,8 @@ def history(conversation_id: UUID, before: int | None = Query(default=None, ge=1
     conversation = conversation_for(db, str(conversation_id), user.id)
     query = select(Message).where(Message.conversation_id == conversation.id,
                                    Message.seq > visible_after(conversation, user.id), Message.created_at > after_time)
+    if not user.is_admin:
+        query = query.where(Message.kind != "recalled")
     if before is not None:
         query = query.where(Message.seq < before)
     messages = db.scalars(query.order_by(Message.seq.desc()).limit(limit + 1)).all()
@@ -300,7 +302,8 @@ def original_message(conversation_id: UUID, message_id: UUID,
     conversation = conversation_for(db, str(conversation_id), user.id)
     message = db.get(Message, str(message_id))
     if (not message or message.conversation_id != conversation.id
-            or message.seq <= visible_after(conversation, user.id) or message.created_at <= after_time):
+            or message.seq <= visible_after(conversation, user.id) or message.created_at <= after_time
+            or message.kind == "recalled"):
         raise HTTPException(404, "原消息不可用")
     return message_json(db, message)
 
@@ -314,6 +317,8 @@ def message_context(conversation_id: UUID, message_id: UUID,
     visible = select(Message).where(Message.conversation_id == conversation.id,
                                     Message.seq > visible_after(conversation, user.id),
                                     Message.created_at > after_time)
+    if not user.is_admin:
+        visible = visible.where(Message.kind != "recalled")
     before = db.scalars(visible.where(Message.seq < target["seq"]).order_by(Message.seq.desc()).limit(24)).all()
     after = db.scalars(visible.where(Message.seq >= target["seq"]).order_by(Message.seq).limit(26)).all()
     return {"messages": [message_json(db, m) for m in [*reversed(before), *after]], "target_id": target["id"]}
@@ -332,6 +337,8 @@ def send(conversation_id: UUID, body: SendMessage, user: User = Depends(ready_us
     conversation = conversation_for(db, conversation.id, user.id, lock=True)
     previous = db.scalar(select(Message).where(Message.sender_id == user.id, Message.client_id == str(body.client_id)))
     if previous:
+        if previous.kind == "recalled":
+            raise HTTPException(409, "该消息已撤回，不能重新发送")
         if (previous.conversation_id != conversation.id or previous.kind != body.kind or previous.text != body.text
                 or previous.attachment_id != (str(body.attachment_id) if body.attachment_id else None)
                 or previous.reply_to_id != (str(body.reply_to_id) if body.reply_to_id else None)):
@@ -358,7 +365,8 @@ def send(conversation_id: UUID, body: SendMessage, user: User = Depends(ready_us
     if body.reply_to_id:
         original = db.get(Message, str(body.reply_to_id))
         if (not original or original.conversation_id != conversation.id
-                or original.seq <= visible_after(conversation, user.id) or original.created_at <= body.after_time):
+                or original.seq <= visible_after(conversation, user.id) or original.created_at <= body.after_time
+                or original.kind == "recalled"):
             raise HTTPException(409, "原消息不可用，请移除引用后再发送")
     conversation.a_hidden = conversation.b_hidden = False
     conversation.next_seq += 1
@@ -375,6 +383,37 @@ def send(conversation_id: UUID, body: SendMessage, user: User = Depends(ready_us
     result = message_json(db, message)
     db.commit()
     return result
+
+
+@router.post("/conversations/{conversation_id}/messages/{message_id}/recall")
+def recall(conversation_id: UUID, message_id: UUID, user: User = Depends(ready_user),
+           db: Session = Depends(get_db)):
+    initial = conversation_for(db, str(conversation_id), user.id)
+    db.scalars(select(User).where(User.id.in_([initial.a, initial.b])).order_by(User.id).with_for_update()
+               .execution_options(populate_existing=True)).all()
+    if not user.active:
+        raise HTTPException(401, "登录已失效")
+    conversation = conversation_for(db, initial.id, user.id, lock=True)
+    message = db.get(Message, str(message_id))
+    if not message or message.conversation_id != conversation.id:
+        raise HTTPException(404, "消息不存在")
+    if message.sender_id != user.id:
+        raise HTTPException(403, "只能撤回自己的消息")
+    if message.kind == "recalled":
+        return {"ok": True}
+    attachment_id = message.attachment_id
+    message.kind = "recalled"
+    message.text = ""
+    message.attachment_id = None
+    message.reply_to_id = message.reply_to_seq = message.reply_to_created_at = None
+    db.flush()
+    if attachment_id:
+        db.execute(delete(Attachment).where(Attachment.id == attachment_id))
+    emit(db, [conversation.a, conversation.b], "message", {"message_id": message.id})
+    db.commit()
+    if attachment_id:
+        (settings.data_dir / "files" / attachment_id).unlink(missing_ok=True)
+    return {"ok": True}
 
 
 @router.post("/conversations/{conversation_id}/read")

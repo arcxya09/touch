@@ -200,7 +200,7 @@ import java.util.Locale
                         Avatar(conversation.peer, vm)
                         Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
                             Text(conversation.peer.name, fontWeight = FontWeight.SemiBold)
-                            Text(conversation.last?.let { if (it.kind == "text") it.text else if (it.kind == "image") "[图片]" else "[文件] ${it.file?.name.orEmpty()}" } ?: "开始聊天",
+                            Text(conversation.last?.let { if (it.kind == "recalled") "消息已撤回" else if (it.kind == "text") it.text else if (it.kind == "image") "[图片]" else "[文件] ${it.file?.name.orEmpty()}" } ?: "开始聊天",
                                 maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         if (conversation.unread > 0) Badge { Text(conversation.unread.coerceAtMost(99).toString()) }
@@ -384,17 +384,23 @@ import java.util.Locale
 @Composable private fun MessageBubble(message: ChatMessage, vm: AppViewModel, openLink: (String) -> Unit) {
     val own = message.senderId == vm.user?.id
     var menu by remember(message.id) { mutableStateOf(false) }
+    var delete by remember(message.id) { mutableStateOf(false) }
+    var recall by remember(message.id) { mutableStateOf(false) }
     var selecting by remember(message.id) { mutableStateOf(false) }
     val valid = !message.pending && message.createdAt > vm.visibilityFloor
+    val recalled = message.kind == "recalled"
     val clipboard = androidx.compose.ui.platform.LocalClipboard.current
     val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (own) Alignment.End else Alignment.Start) {
         Surface(shape = RoundedCornerShape(18.dp), color = if (vm.highlightId == message.id) MaterialTheme.colorScheme.tertiaryContainer else if (own) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-            modifier = Modifier.widthIn(max = 310.dp).then(if (message.file != null && !message.pending) Modifier.combinedClickable(enabled = !vm.busy, onClick = { vm.openFile(message) }, onLongClick = { if (valid) menu = true }) else Modifier)) {
+            modifier = Modifier.widthIn(max = 310.dp).then(if ((message.file != null || recalled) && !message.pending) Modifier.combinedClickable(enabled = !vm.busy, onClick = { if (!recalled) vm.openFile(message) }, onLongClick = { if (valid) menu = true }) else Modifier)) {
             Column(Modifier.padding(14.dp)) {
                 message.replyTo?.let { QuotePreview(it, message.conversationId, vm) }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    DropdownMenuItem(text = { Text("引用回复") }, enabled = valid, onClick = { vm.quoteMessage(message); menu = false })
+                    DropdownMenuItem(text = { Text("本地删除") }, enabled = valid && !vm.busy, onClick = { menu = false; delete = true })
+                    if (own && !recalled) DropdownMenuItem(text = { Text("撤回消息") }, enabled = valid && !vm.busy,
+                        onClick = { menu = false; recall = true })
+                    DropdownMenuItem(text = { Text("引用回复") }, enabled = valid && !recalled, onClick = { vm.quoteMessage(message); menu = false })
                     if (message.kind == "text") {
                         DropdownMenuItem(text = { Text("复制全文") }, onClick = {
                             scope.launch {
@@ -406,7 +412,8 @@ import java.util.Locale
                         DropdownMenuItem(text = { Text("选择文字") }, onClick = { menu = false; selecting = true })
                     }
                 }
-                if (message.kind == "text") MessageText(message.text, openLink, Modifier.testTag("message-text-${message.id}"), onLongPress = if (selecting) null else ({ if (valid) menu = true }))
+                if (recalled) Text(if (own) "你撤回了一条消息" else "对方撤回了一条消息", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                else if (message.kind == "text") MessageText(message.text, openLink, Modifier.testTag("message-text-${message.id}"), onLongPress = if (selecting) null else ({ if (valid) menu = true }))
                 else {
                     if (message.kind == "image" && !message.pending) ChatImagePreview(message, vm)
                     else Icon(if (message.kind == "image") Icons.Outlined.Image else Icons.Outlined.Description, null)
@@ -421,18 +428,26 @@ import java.util.Locale
             TextButton(onClick = { vm.retry(message.id) }, enabled = !vm.busy && message.id !in vm.sendingIds) { Text("重试") }
             TextButton(onClick = { vm.discard(message.id) }, enabled = !vm.busy) { Text("删除") }
         } else Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date(message.createdAt * 1000)) + if (own) " · 已发送" else "",
+            Text(SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date(message.createdAt * 1000)) + if (own && !recalled) " · 已发送" else "",
                 Modifier.padding(horizontal = 4.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             val read = vm.conversations.firstOrNull { it.id == message.conversationId }?.peerReadSeq ?: 0
             if (own && vm.user?.isAdmin == true && vm.user?.readReceipts == true && message.seq <= read)
                 Box(Modifier.size(3.dp).background(Color.Gray, CircleShape).testTag("read-${message.id}").semantics { contentDescription = "对方已读" })
         }
     }
+    if (delete) Confirm("本地删除", "仅删除本机这条消息及其附件，不影响对方；本机同步和加载历史不会恢复该消息。", { delete = false }) {
+        delete = false; vm.deleteLocalMessage(message)
+    }
+    if (recall) Confirm("撤回消息", "撤回后，普通用户不再显示这条消息，仅管理员看到撤回提示。已复制或保存的内容无法收回。", { recall = false }) {
+        recall = false; vm.recallMessage(message)
+    }
+
 }
 
 @Composable private fun SettingsScreen(vm: AppViewModel, activity: MainActivity) {
     var passwordDialog by remember { mutableStateOf<String?>(null) }
     var setup by remember { mutableStateOf(false) }
+    var clearHistory by remember { mutableStateOf(false) }
     var logout by remember { mutableStateOf(false) }
     var enableRetentionDialog by remember { mutableStateOf(false) }
     var retentionDialog by remember { mutableStateOf(false) }
@@ -488,8 +503,12 @@ import java.util.Locale
             TextButton(onClick = { vm.checkUpdate() }) { Text("检查更新 · ${BuildConfig.VERSION_NAME}") }
             if (vm.updateApk != null && vm.update != null) TextButton(onClick = { vm.showUpdate = true }) { Text("继续安装已下载的更新") }
             Text("隐私模式仅在解锁后检查更新。可在通知与后台运行中开启提醒；重新打开会补齐离线消息。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedButton(onClick = { clearHistory = true }, enabled = !vm.busy) { Text("清空本地聊天记录") }
             OutlinedButton(onClick = { logout = true }) { Text("退出账号") }
         }
+    }
+    if (clearHistory) Confirm("清空本地聊天记录", "清除本机已有消息、附件、草稿和待发送内容，旧消息不再自动拉取。保留登录、联系人和设置，不影响服务器及对方记录。", { clearHistory = false }) {
+        clearHistory = false; vm.clearLocalHistory()
     }
     passwordDialog?.let { action ->
         var password by remember { mutableStateOf("") }
