@@ -45,7 +45,7 @@ internal fun messageLinks(text: String): List<MessageLink> {
     }
 }
 
-/** Native selection handles/menu; annotations keep the copied text identical to the message. */
+/** Selection is enabled only when no message-action gesture owns the long press. */
 @Composable internal fun MessageText(text: String, openLink: (String) -> Unit, modifier: Modifier = Modifier, onLongPress: (() -> Unit)? = null) {
     val links = remember(text) { messageLinks(text) }
     val currentLongPress by rememberUpdatedState(onLongPress)
@@ -73,15 +73,15 @@ internal fun messageLinks(text: String): List<MessageLink> {
         }
     }
     CompositionLocalProvider(LocalClipboard provides privateClipboard) {
-        SelectionContainer {
+        val content: @Composable () -> Unit = {
             Text(annotated, modifier
                 .semantics {
                     customActions = links.map { link ->
                         CustomAccessibilityAction("打开链接 ${link.url}") { currentOpen(link.url); true }
                     }
                 }
-                .pointerInput(text, links) {
-                    // Observe without consuming: SelectionContainer owns long-press and drag.
+                .pointerInput(text, links, onLongPress != null) {
+                    // In selection mode, observe without consuming native long-press and drag.
                     // LinkAnnotation consumes long presses as clicks on some Compose versions.
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Final)
@@ -109,5 +109,6 @@ internal fun messageLinks(text: String): List<MessageLink> {
                     }
                 }, onTextLayout = { layout = it })
         }
+        if (onLongPress == null) SelectionContainer { content() } else content()
     }
 }

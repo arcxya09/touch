@@ -92,7 +92,7 @@ class MainActivity : ComponentActivity(), android.hardware.SensorEventListener {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         model.updater = Updater(this, model.repository.api)
-        if (opensTimer(intent)) model.screen = "timer"
+        if (savedInstanceState == null) routeNotification(intent)
         model.pendingNotificationSettings = intent.getBooleanExtra("notification_settings", false)
         setContent { TouchRoot(model, this) }
         cover = TextView(this).apply {
@@ -105,12 +105,16 @@ class MainActivity : ComponentActivity(), android.hardware.SensorEventListener {
         super.onNewIntent(intent)
         setIntent(intent)
         if (intent.getBooleanExtra("notification_settings", false)) model.pendingNotificationSettings = true
-        if (opensTimer(intent)) { model.hide(); model.screen = "timer" }
-        else if (intent.getBooleanExtra("message_alert", false)) model.screen = "home"
+        routeNotification(intent)
     }
-    private fun opensTimer(intent: Intent) = intent.getBooleanExtra("timer", false) ||
-        (intent.action == Intent.ACTION_MAIN && !intent.getBooleanExtra("message_alert", false) &&
-            !intent.getBooleanExtra("notification_settings", false) && (application as TouchApp).alerts.hasDiscreetMessage())
+    private fun routeNotification(intent: Intent) {
+        when {
+            intent.getBooleanExtra("message_alert", false) -> model.openMessageNotification(intent.getStringExtra("conversation_id"))
+            intent.getBooleanExtra("timer", false) -> { model.hide(); model.screen = "timer" }
+            intent.action == Intent.ACTION_MAIN && !intent.getBooleanExtra("notification_settings", false) &&
+                (application as TouchApp).alerts.hasDiscreetMessage() -> model.openMessageNotification(null)
+        }
+    }
     override fun onPause() {
         resumed = false; sensors.unregisterListener(this); motionOptions = null
         if (::cover.isInitialized && (model.privacy || model.needsPrivacySetup)) cover.visibility = View.VISIBLE

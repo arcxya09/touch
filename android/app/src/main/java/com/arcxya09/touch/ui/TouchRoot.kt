@@ -293,11 +293,13 @@ import java.util.Locale
     remove?.let { person -> Confirm("删除联系人", "删除后双方无法继续发送消息，已有历史记录保留。", { remove = null }) { vm.contactAction(person, "remove"); remove = null } }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun ChatScreen(vm: AppViewModel, activity: MainActivity) {
     val conversation = vm.conversations.firstOrNull { it.id == vm.conversationId }
     val peer = conversation?.peer ?: vm.contacts.firstOrNull { it.conversationId == vm.conversationId }?.peer
     // Chat text must never be serialized into Android's plaintext saved-instance state.
     val draft = vm.draftText
+    var attachments by remember { mutableStateOf(false) }
     var clear by remember { mutableStateOf(false) }
     var more by remember { mutableStateOf(false) }
     val scroll = rememberLazyListState()
@@ -369,12 +371,21 @@ import java.util.Locale
         }
         if (conversation?.canSend == false) Text("当前无法发送，请先建立有效联系人关系。", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
         else Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.Bottom) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = activity::chooseImage, enabled = !vm.busy) { Icon(Icons.Outlined.Image, "发送图片") }
-                IconButton(onClick = activity::chooseDocument, enabled = !vm.busy) { Icon(Icons.Outlined.AttachFile, "发送文件") }
-            }
-            OutlinedTextField(draft, vm::editDraft, Modifier.weight(1f), placeholder = { Text("输入消息") }, maxLines = 5, shape = RoundedCornerShape(20.dp))
+            OutlinedTextField(draft, vm::editDraft, Modifier.weight(1f),
+                leadingIcon = {
+                    IconButton(onClick = { attachments = true }, enabled = !vm.busy) { Icon(Icons.Outlined.Add, "添加图片或文件") }
+                }, placeholder = { Text("输入消息") }, maxLines = 5, shape = RoundedCornerShape(20.dp))
             IconButton(onClick = { vm.send(draft) {} }, enabled = draft.isNotBlank() && !vm.busy) { Icon(Icons.Outlined.Send, "发送") }
+        }
+    }
+    if (attachments) {
+        ModalBottomSheet(onDismissRequest = { attachments = false }) {
+            Text("添加内容", Modifier.padding(horizontal = 24.dp, vertical = 8.dp), style = MaterialTheme.typography.titleMedium)
+            ListItem(headlineContent = { Text("图片") }, leadingContent = { Icon(Icons.Outlined.Image, null) },
+                modifier = Modifier.fillMaxWidth().clickable(enabled = !vm.busy) { attachments = false; activity.chooseImage() })
+            ListItem(headlineContent = { Text("文件") }, leadingContent = { Icon(Icons.Outlined.AttachFile, null) },
+                modifier = Modifier.fillMaxWidth().clickable(enabled = !vm.busy) { attachments = false; activity.chooseDocument() })
+            Spacer(Modifier.height(24.dp))
         }
     }
     if (clear) DeleteConversationConfirm({ clear = false }) { vm.conversationId?.let(vm::deleteConversation); clear = false }

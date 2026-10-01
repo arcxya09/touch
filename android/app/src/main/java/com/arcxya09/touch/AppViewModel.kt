@@ -202,6 +202,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     try {
                         alertOptions = withContext(Dispatchers.IO) { app.alertSettings.read() }
                         backgroundAlerts = AlertService.running
+                        if (pendingMessageNotification && !busy) startForegroundWork()
                         expiryTick = System.currentTimeMillis() / 1000
                         visibilityFloor = repository.visibilityFloor()
                         if (repository.purge() || (user != null && repository.api.user == null)) reloadLocal()
@@ -308,10 +309,26 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         conversations = emptyList(); contacts = emptyList(); messages = emptyList(); conversationId = null; pendingAvatar = null; pendingSelection = null; preview = null
         screen = "home"; if (privacy) locked = true
     }
+    private var pendingMessageNotification = false
+    private var notificationConversationId: String? = null
+    fun openMessageNotification(id: String?) {
+        pendingMessageNotification = true
+        notificationConversationId = id
+        // Read the persisted privacy choice before navigation; cold starts may still be loading it.
+        if (privacy) { hide(); screen = "timer" }
+        if (initialized && foreground && mayShowChat) startForegroundWork()
+    }
     private fun startForegroundWork() {
         if (!foreground || !mayShowChat) return
         if (pendingNotificationSettings && user != null && user?.mustChange == false) {
             pendingNotificationSettings = false; screen = "notifications"
+        }
+        if (pendingMessageNotification && !busy && user != null && user?.mustChange == false) {
+            pendingMessageNotification = false
+            val id = notificationConversationId
+            notificationConversationId = null
+            if (id != null && conversations.any { it.id == id }) openConversation(id)
+            else screen = "home"
         }
         autoUpdate()
         if (user == null || user?.mustChange == true || syncJob?.isActive == true) return
@@ -374,6 +391,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
     fun openConversation(id: String) {
+        if (conversationId != id) messages = emptyList()
         conversationId = id; reportedRead = 0; screen = "chat"
         pageBefore = Long.MAX_VALUE; windowFirst = null; windowLast = null; browsingHistory = false
         draftText = ""; quote = null
