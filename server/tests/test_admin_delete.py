@@ -94,8 +94,9 @@ def test_delete_revokes_sessions_preserves_peer_history_and_isolates_reused_name
                        "password": "password123!"}).status_code == 200
     new_headers, new = login(client, "alice")
     assert new["user"]["id"] != uid
-    client.post("/api/v1/auth/password", headers=new_headers,
-                json={"current_password": "password123!", "new_password": "changed12345!"})
+    changed = client.post("/api/v1/auth/password", headers=new_headers,
+                          json={"current_password": "password123!", "new_password": "changed12345!"})
+    new_headers["Authorization"] = "Bearer " + changed.json()["session"]["access_token"]
     assert client.get("/api/v1/conversations", headers=new_headers).json() == []
     assert client.get("/api/v1/contacts", headers=new_headers).json() == []
     assert client.get("/api/v1/files/" + attached["id"], headers=new_headers).status_code == 404

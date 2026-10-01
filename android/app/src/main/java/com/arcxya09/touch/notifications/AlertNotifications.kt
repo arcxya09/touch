@@ -25,8 +25,8 @@ class AlertNotifications(private val app: TouchApp) {
             setShowBadge(false)
         })
     }
-    private fun open(timer: Boolean): PendingIntent = PendingIntent.getActivity(app, if (timer) 4103 else 4104,
-        Intent(app, MainActivity::class.java).setAction(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).putExtra("timer", timer).putExtra("message_alert", !timer)
+    private fun open(conversationId: String? = null, requestCode: Int = 4104): PendingIntent = PendingIntent.getActivity(app, requestCode,
+        Intent(app, MainActivity::class.java).setAction(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).putExtra("message_alert", true).putExtra("conversation_id", conversationId)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     fun running(): Notification {
@@ -36,29 +36,31 @@ class AlertNotifications(private val app: TouchApp) {
         return NotificationCompat.Builder(app, RUNNING_CHANNEL).setSmallIcon(R.drawable.ic_touch)
             .setContentTitle("Touch番茄钟").setContentText("后台提醒已开启")
             .setGroup(GROUP).setGroupSummary(true).setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
-            .setContentIntent(open(true)).setOngoing(true).setOnlyAlertOnce(true).setSilent(true)
+            .setContentIntent(open(requestCode = 4103)).setOngoing(true).setOnlyAlertOnce(true).setSilent(true)
             .setShowWhen(false).setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .addAction(0, "暂停提醒", stop).build()
     }
-    private fun discreet() = NotificationCompat.Builder(app, DISCREET_CHANNEL).setSmallIcon(R.drawable.ic_touch)
+    private fun discreet(destination: PendingIntent) = NotificationCompat.Builder(app, DISCREET_CHANNEL).setSmallIcon(R.drawable.ic_touch)
         .setContentTitle("Touch番茄钟").setContentText("已经专注一段时间了，记得休息一下。")
-        .setGroup(GROUP).setContentIntent(open(true)).setAutoCancel(true).setSilent(true)
+        .setGroup(GROUP).setContentIntent(destination).setAutoCancel(true).setSilent(true)
         .setVisibility(NotificationCompat.VISIBILITY_PUBLIC).setNumber(0).build()
     suspend fun incoming(messages: List<ChatMessage>) {
         val options = app.alertSettings.read()
         val owner = app.repository.api.user?.id
         if (!options.canRun(owner) || !AlertService.running || chatVisible || !allowed()) return
-        val latest = messages.lastOrNull { it.senderId != owner } ?: return
-        // Re-check local retention and personal deletion before publishing delayed events.
-        if (app.repository.messages(latest.conversationId).none { it.id == latest.id }) return
+        val candidate = messages.lastOrNull { it.senderId != owner && it.kind != "recalled" } ?: return
+        // Use current local content: a queued notification must not reveal a recalled message.
+        val latest = app.repository.messages(candidate.conversationId)
+            .firstOrNull { it.id == candidate.id && it.kind != "recalled" } ?: return
         val peer = app.repository.conversations().firstOrNull { it.id == latest.conversationId }?.peer
         val locked = app.getSystemService(KeyguardManager::class.java).isDeviceLocked ||
             !app.getSystemService(android.os.PowerManager::class.java).isInteractive
-        val notification = if (options.mode == AlertMode.DISCREET || locked) discreet() else {
+        val destination = open(latest.conversationId)
+        val notification = if (options.mode == AlertMode.DISCREET || locked) discreet(destination) else {
             val body = when (latest.kind) { "text" -> latest.text.take(160); "image" -> "[图片]"; else -> "[文件]" }
             NotificationCompat.Builder(app, CONTENT_CHANNEL).setSmallIcon(R.drawable.ic_touch)
                 .setContentTitle(peer?.name ?: "新消息").setContentText(body)
-                .setGroup(GROUP).setContentIntent(open(false)).setAutoCancel(true).setNumber(0)
+                .setGroup(GROUP).setContentIntent(destination).setAutoCancel(true).setNumber(0)
                 .setVisibility(NotificationCompat.VISIBILITY_SECRET).build()
         }
         // A mode switch/disable may have happened during database reads.
@@ -66,9 +68,10 @@ class AlertNotifications(private val app: TouchApp) {
         runCatching { manager.notify(MESSAGE_ID, notification) }
     }
     fun concealOnLock() {
-        if (manager.activeNotifications.any { it.id == MESSAGE_ID } && allowed()) {
+        val current = manager.activeNotifications.firstOrNull { it.id == MESSAGE_ID }?.notification ?: return
+        if (allowed()) {
             manager.cancel(MESSAGE_ID)
-            runCatching { manager.notify(MESSAGE_ID, discreet()) }
+            runCatching { manager.notify(MESSAGE_ID, discreet(current.contentIntent ?: open())) }
         }
     }
     fun clearMessages() = manager.cancel(MESSAGE_ID)

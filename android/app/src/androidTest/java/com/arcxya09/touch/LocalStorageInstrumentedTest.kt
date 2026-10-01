@@ -107,6 +107,7 @@ class LocalStorageInstrumentedTest {
     @Test fun purgeIncludesOutboxAndFilesAndNeverRestoresHistoryAfterLogoutOrLongerWindow() = runBlocking<Unit> {
         val repo = app.repository
         repo.logout(false)
+        repo.clearLocal()
         val cache = app.database.cache()
         val owner = UUID.randomUUID().toString()
         val now = System.currentTimeMillis() / 1000
@@ -140,6 +141,7 @@ class LocalStorageInstrumentedTest {
         cache.put(TouchDatabase.Item("meta", "owner", owner)); repo.purge()
         assertTrue(runCatching { repo.download(ChatMessage.parse(old)) { } }.isFailure)
         repo.logout(false)
+        repo.clearLocal()
         repo.enableRetention(false)
     }
 
@@ -160,9 +162,12 @@ class LocalStorageInstrumentedTest {
     @Test fun legacyPlaintextAttachmentIsEncryptedBeforeAccessAndExpiredCopyIsDeleted() = runBlocking<Unit> {
         val repo = app.repository
         repo.logout(false)
+        repo.clearLocal()
         val cache = app.database.cache()
         val owner = UUID.randomUUID().toString()
         cache.put(TouchDatabase.Item("meta", "owner", owner))
+        repo.api.save(JSONObject().put("access_token", "local-test").put("refresh_token", "local-test")
+            .put("user", JSONObject().put("id", owner).put("username", owner).put("display_name", "Local test")))
         repo.purge()
         repo.enableRetention(true)
         repo.configureRetention(3600)

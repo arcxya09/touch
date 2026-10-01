@@ -5,3 +5,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "Touch"
 include(":app")
+include(":benchmark")

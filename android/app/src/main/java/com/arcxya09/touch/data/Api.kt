@@ -15,41 +15,75 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.InternalCoroutinesApi
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import okio.ForwardingSource
+import okio.Buffer
+import okio.buffer
 
-class Api(private val secure: SecureStore) {
+class Api(secure: SecureStore, private val baseUrl: String = BuildConfig.API_BASE) {
+    private val credentials = SecureSessionStore(secure)
     val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS)
         .pingInterval(25, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).writeTimeout(120, TimeUnit.SECONDS).build()
     private val jsonClient = client.newBuilder().callTimeout(20, TimeUnit.SECONDS).build()
     val socketClient = client.newBuilder().pingInterval(10, TimeUnit.SECONDS).build()
-    @Volatile var session: JSONObject? = null
-        private set
+    val session: JSONObject? get() = credentials.value
     private val refreshLock = Mutex()
     val user: Person? get() = session?.optJSONObject("user")?.let(Person::parse)
 
-    suspend fun load() { session = secure.read("session")?.let(::JSONObject) }
+    suspend fun load() = credentials.load()
+    fun sealCredentials() = credentials.seal()
     suspend fun save(value: JSONObject?) = refreshLock.withLock { saveLocked(value) }
-    private suspend fun saveLocked(value: JSONObject?) { secure.write("session", value?.toString()); session = value }
+    private suspend fun saveLocked(value: JSONObject?) = credentials.save(value)
     suspend fun updateUser(value: JSONObject) = refreshLock.withLock {
         session?.takeIf { it.getJSONObject("user").getString("id") == value.getString("id") }?.let {
             saveLocked(JSONObject(it.toString()).put("user", value))
         }
     }
 
-    suspend fun execute(request: Request, transport: OkHttpClient = client): Response = suspendCancellableCoroutine { continuation ->
+    @OptIn(InternalCoroutinesApi::class)
+    suspend fun execute(request: Request, transport: OkHttpClient = client): Response {
+        val owner = currentCoroutineContext()[Job]
+        return suspendCancellableCoroutine { continuation ->
         val call = transport.newCall(request)
+        // The response body may outlive header delivery. Keep request cancellation bound until close().
+        val cancellation = owner?.invokeOnCompletion(onCancelling = true, invokeImmediately = true) { cause ->
+            if (cause != null) call.cancel()
+        }
         continuation.invokeOnCancellation { call.cancel() }
         call.enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) { if (continuation.isActive) continuation.resumeWithException(e) }
+            override fun onFailure(call: Call, e: IOException) {
+                cancellation?.dispose()
+                if (continuation.isActive) continuation.resumeWithException(e)
+            }
             override fun onResponse(call: Call, response: Response) {
-                if (continuation.isActive) continuation.resume(response) { _, value, _ -> value.close() } else response.close()
+                val original = response.body
+                val bound = if (original == null) {
+                    cancellation?.dispose(); response
+                } else response.newBuilder().body(object : ResponseBody() {
+                    private val stream = object : ForwardingSource(original.source()) {
+                        override fun read(sink: Buffer, byteCount: Long): Long = try {
+                            owner?.ensureActive(); super.read(sink, byteCount)
+                        } catch (e: IOException) { owner?.ensureActive(); throw e }
+                        override fun close() { try { super.close() } finally { cancellation?.dispose() } }
+                    }.buffer()
+                    override fun contentType() = original.contentType()
+                    override fun contentLength() = original.contentLength()
+                    override fun source() = stream
+                }).build()
+                if (continuation.isActive) continuation.resume(bound) { _, value, _ -> value.close() } else bound.close()
             }
         })
+        }
     }
 
-    suspend fun response(path: String, method: String = "GET", body: RequestBody? = null, authenticated: Boolean = true, bounded: Boolean = false): Response = withContext(Dispatchers.IO) {
+    suspend fun response(path: String, method: String = "GET", body: RequestBody? = null, authenticated: Boolean = true, bounded: Boolean = false): Response {
         val owner = user?.id
         val transport = if (bounded) jsonClient else client
-        fun request() = Request.Builder().url(BuildConfig.API_BASE + path).method(method, body).apply {
+        fun request() = Request.Builder().url(baseUrl + path).method(method, body).apply {
+            header("X-Touch-Capabilities", "recall-v1")
             if (authenticated) session?.optString("access_token")?.let { header("Authorization", "Bearer $it") }
         }.build()
         val first = request()
@@ -73,7 +107,7 @@ class Api(private val secure: SecureStore) {
         }
 
         if (!result.isSuccessful) {
-            val text = result.body?.string().orEmpty()
+            val text = withContext(Dispatchers.IO) { result.body?.string().orEmpty() }
             val error = runCatching { JSONObject(text).opt("detail") }.getOrNull()
             val message = if (error is String) error else when (result.code) {
                 401 -> "登录已失效，请重新登录"
@@ -85,7 +119,7 @@ class Api(private val secure: SecureStore) {
             result.close()
             throw exception
         }
-        result
+        return result
     }
 
     suspend fun text(path: String, method: String = "GET", json: JSONObject? = null, auth: Boolean = true): String = withContext(Dispatchers.IO) {

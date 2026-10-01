@@ -7,7 +7,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-    <application android:name=".TouchApp" android:label="Touch番茄钟" android:icon="@drawable/ic_touch"
+    <application android:name=".TouchApp" android:label="Touch番茄钟" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher"
         android:allowBackup="false" android:fullBackupContent="false" android:dataExtractionRules="@xml/data_extraction_rules"
         android:usesCleartextTraffic="false" android:theme="@style/Theme.Touch" android:supportsRtl="true">
         <activity android:name=".MainActivity" android:exported="true" android:windowSoftInputMode="adjustResize">

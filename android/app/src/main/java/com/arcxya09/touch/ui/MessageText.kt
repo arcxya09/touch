@@ -8,6 +8,7 @@ import androidx.core.text.util.LinkifyCompat
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -45,8 +46,9 @@ internal fun messageLinks(text: String): List<MessageLink> {
     }
 }
 
-/** Native selection handles/menu; annotations keep the copied text identical to the message. */
-@Composable internal fun MessageText(text: String, openLink: (String) -> Unit, modifier: Modifier = Modifier, onLongPress: (() -> Unit)? = null) {
+/** Selection is enabled only when no message-action gesture owns the long press. */
+@Composable internal fun MessageText(text: String, openLink: (String) -> Unit, modifier: Modifier = Modifier,
+    onLongPress: (() -> Unit)? = null, messageActions: List<CustomAccessibilityAction> = emptyList()) {
     val links = remember(text) { messageLinks(text) }
     val currentLongPress by rememberUpdatedState(onLongPress)
     val currentOpen by rememberUpdatedState(openLink)
@@ -73,15 +75,28 @@ internal fun messageLinks(text: String): List<MessageLink> {
         }
     }
     CompositionLocalProvider(LocalClipboard provides privateClipboard) {
-        SelectionContainer {
+        val content: @Composable () -> Unit = {
             Text(annotated, modifier
                 .semantics {
-                    customActions = links.map { link ->
+                    customActions = messageActions + links.map { link ->
                         CustomAccessibilityAction("打开链接 ${link.url}") { currentOpen(link.url); true }
                     }
                 }
-                .pointerInput(text, links) {
-                    // Observe without consuming: SelectionContainer owns long-press and drag.
+                .pointerInput(text, links, onLongPress != null) {
+                    if (onLongPress != null) {
+                        // Native long-press timing gives feedback before the finger is released.
+                        detectTapGestures(onLongPress = { currentLongPress?.invoke() }, onTap = { position ->
+                            layout?.let { result ->
+                                val caret = result.getOffsetForPosition(position)
+                                val offset = listOf(caret, caret - 1).firstOrNull {
+                                    it in text.indices && result.getBoundingBox(it).contains(position)
+                                }
+                                if (offset != null) links.firstOrNull { offset in it.start until it.end }?.let { currentOpen(it.url) }
+                            }
+                        })
+                        return@pointerInput
+                    }
+                    // In selection mode, observe without consuming native long-press and drag.
                     // LinkAnnotation consumes long presses as clicks on some Compose versions.
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Final)
@@ -109,5 +124,6 @@ internal fun messageLinks(text: String): List<MessageLink> {
                     }
                 }, onTextLayout = { layout = it })
         }
+        if (onLongPress == null) SelectionContainer { content() } else content()
     }
 }

@@ -6,6 +6,10 @@ on:
         description: Existing draft tag to verify and publish without replacing assets
         type: string
         required: true
+      validation_run_id:
+        description: Successful Record independent release validation run containing evidence for this exact APK and commit
+        type: string
+        required: true
 permissions:
   contents: read
 concurrency:
@@ -14,13 +18,19 @@ concurrency:
 jobs:
   finalize:
     runs-on: ubuntu-latest
+    environment: release-validation
     permissions:
       contents: write
+      actions: read
     env:
       RELEASE_TAG: ${{ inputs.tag }}
       GH_TOKEN: ${{ github.token }}
+      VALIDATION_RUN_ID: ${{ inputs.validation_run_id }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
       - uses: actions/setup-java@v4
@@ -48,4 +58,14 @@ jobs:
             exit 1
           fi
       - name: Publish verified draft as Latest
-        run: gh release edit "$RELEASE_TAG" --draft=false --latest
+        run: |
+          [[ "$VALIDATION_RUN_ID" =~ ^[0-9]+$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VALIDATION_RUN_ID" > "$RUNNER_TEMP/validation-run.json"
+          python -c 'import json,os; r=json.load(open(os.environ["RUNNER_TEMP"]+"/validation-run.json")); assert r["conclusion"] == "success" and r["event"] == "workflow_dispatch" and r["path"] == ".github/workflows/release-validation.yml", "Independent validation run is not successful or has the wrong workflow"'
+          gh run download "$VALIDATION_RUN_ID" --name "release-validation-$RELEASE_TAG" --dir proof
+          python ops/release_evidence.py --evidence proof/release-validation.json --manifest dist/update.json --apk dist/touch.apk --commit "$(git rev-parse HEAD)"
+          TARGET_COMMIT=$(git rev-parse HEAD)
+          export TARGET_COMMIT
+          gh run list --workflow ci.yml --commit "$TARGET_COMMIT" --status success --json headSha,conclusion --limit 100 > "$RUNNER_TEMP/ci-runs.json"
+          python -c 'import json,os; rows=json.load(open(os.environ["RUNNER_TEMP"]+"/ci-runs.json")); assert any(r["headSha"] == os.environ["TARGET_COMMIT"] and r["conclusion"] == "success" for r in rows), "The target commit has no successful full CI run"'
+          gh release edit "$RELEASE_TAG" --draft=false --latest

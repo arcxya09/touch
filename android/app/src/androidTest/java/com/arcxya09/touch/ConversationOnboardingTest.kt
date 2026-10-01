@@ -27,6 +27,24 @@ class ConversationOnboardingTest {
             up()
         }
     }
+    private fun unlockFromTimer() {
+        val timer = compose.onNodeWithTag("timer-screen")
+        val bounds = timer.fetchSemanticsNode().boundsInRoot
+        assertTrue("Run the onboarding acceptance test in portrait", bounds.height > bounds.width)
+        val density = ApplicationProvider.getApplicationContext<TouchApp>().resources.displayMetrics.density
+        val diameter = minOf(bounds.width - 64f * density, 320f * density)
+        // Locate the visible dial through ordinary timer semantics, without a hidden-entry tag.
+        val dialCenter = compose.onNode(hasContentDescription("，剩余 ", substring = true))
+            .fetchSemanticsNode().boundsInRoot.center - bounds.topLeft
+        val step = diameter / 3f
+        timer.performTouchInput {
+            down(dialCenter + Offset(-step, -step))
+            moveTo(dialCenter + Offset(0f, -step), 100)
+            moveTo(dialCenter + Offset(step, -step), 100)
+            moveTo(dialCenter + Offset(step, 0f), 100)
+            up()
+        }
+    }
     @Test fun firstLoginChoicePersistsAndDeletedHistoryDoesNotReturn() = runBlocking<Unit> {
         val args = InstrumentationRegistry.getArguments()
         val name = args.getString("touchTestUser")
@@ -50,8 +68,8 @@ class ConversationOnboardingTest {
             scenario.recreate(); model()
             compose.waitUntil(10000) { vm.initialized && vm.mayShowSession }
             assertTrue(vm.needsPrivacySetup)
-            compose.onNodeWithText("取消").performClick()
-            compose.onNodeWithText("跳过设置，使用正常模式").performClick()
+            compose.onNodeWithText("取消").performScrollTo().performClick()
+            compose.onNodeWithText("跳过设置，使用正常模式").performScrollTo().performClick()
             compose.waitUntil(15000) { vm.mayShowChat && !vm.busy && vm.conversations.isNotEmpty() }
             assertFalse(vm.privacy)
             scenario.recreate(); model()
@@ -69,8 +87,9 @@ class ConversationOnboardingTest {
             repo.sync()
             val handle = repo.download(repo.messages(cid).first { it.file?.id == item.id }) {}
             assertTrue(handle.valid())
-            compose.onNodeWithContentDescription("删除会话").performClick()
-            compose.onNodeWithText("确认").performClick()
+            compose.onNodeWithContentDescription("更多操作").performClick()
+            compose.onNodeWithText("删除会话").performClick()
+            compose.onNode(hasText("删除会话") and hasClickAction()).performClick()
             compose.waitUntil(15000) { !vm.busy && vm.screen == "home" }
             assertTrue(repo.messages(cid).isEmpty())
             assertFalse(handle.valid())
@@ -100,8 +119,10 @@ class ConversationOnboardingTest {
             compose.waitUntil(10000) { vm.privacy && vm.locked && !vm.busy }
             compose.onNodeWithTag("timer-screen").assertIsDisplayed()
             scenario.recreate()
-            compose.waitUntil(10000) { compose.onAllNodesWithTag("hidden-pattern").fetchSemanticsNodes().isNotEmpty() }
-            gesture("hidden-pattern")
+            scenario.onActivity { vm = ViewModelProvider(it)[AppViewModel::class.java] }
+            compose.waitUntil(10000) { vm.initialized && vm.privacy && vm.locked &&
+                compose.onAllNodesWithTag("timer-screen").fetchSemanticsNodes().isNotEmpty() }
+            unlockFromTimer()
             compose.waitUntil(10000) { compose.onAllNodesWithText("消息").fetchSemanticsNodes().isNotEmpty() }
         }
     }

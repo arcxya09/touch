@@ -20,7 +20,9 @@ import org.json.JSONObject
 import java.io.File
 import java.io.ByteArrayOutputStream
 
-class Updater(private val activity: Activity, private val api: Api) {
+class Updater(activity: Activity, private val api: Api) {
+    private val context = activity.applicationContext
+    private val activityReference = java.lang.ref.WeakReference(activity)
     private val preferences = activity.getSharedPreferences("update_checks", Activity.MODE_PRIVATE)
     fun due(): Boolean = !BuildConfig.DEBUG && System.currentTimeMillis() >= preferences.getLong("next_check", 0)
     suspend fun check(): UpdateManifest? = withContext(Dispatchers.IO) {
@@ -57,7 +59,7 @@ class Updater(private val activity: Activity, private val api: Api) {
         }
     }
     suspend fun download(manifest: UpdateManifest, progress: (Float) -> Unit): File = withContext(Dispatchers.IO) {
-        val directory = File(activity.cacheDir, "updates").apply { mkdirs() }
+        val directory = File(context.cacheDir, "updates").apply { mkdirs() }
         val target = File(directory, "touch-${manifest.versionCode}.apk")
         if (target.exists()) {
             if (runCatching { verify(target, manifest) }.isSuccess) return@withContext target
@@ -90,10 +92,10 @@ class Updater(private val activity: Activity, private val api: Api) {
     @Suppress("DEPRECATION")
     fun verify(file: File, manifest: UpdateManifest) {
         check(file.length() == manifest.apkSize && sha256(file) == manifest.sha256) { "安装包完整性校验失败" }
-        val manager = activity.packageManager
+        val manager = context.packageManager
         val incoming = manager.getPackageArchiveInfo(file.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES) ?: error("安装包无法解析")
-        val installed = manager.getPackageInfo(activity.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
-        check(incoming.packageName == activity.packageName && incoming.longVersionCode == manifest.versionCode
+        val installed = manager.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+        check(incoming.packageName == context.packageName && incoming.longVersionCode == manifest.versionCode
             && incoming.longVersionCode > installed.longVersionCode && incoming.versionName == manifest.versionName) { "安装包身份或版本不匹配" }
         check(incoming.applicationInfo?.minSdkVersion == manifest.minSdk) { "安装包系统要求不匹配" }
         val received = incoming.signingInfo?.apkContentsSigners?.map { it.toCharsString() }?.toSet().orEmpty()
@@ -104,8 +106,16 @@ class Updater(private val activity: Activity, private val api: Api) {
         (api.client.dispatcher.queuedCalls() + api.client.dispatcher.runningCalls())
             .filter { it.request().tag() === this }.forEach { it.cancel() }
     }
-    fun install(file: File, manifest: UpdateManifest) {
-        try { verify(file, manifest) } catch (error: Exception) { file.delete(); throw error }
+    suspend fun verifyForInstall(file: File, manifest: UpdateManifest) = withContext(Dispatchers.IO) {
+        try { verify(file, manifest) } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            file.delete(); throw error
+        }
+        currentCoroutineContext().ensureActive()
+    }
+    fun launchInstaller(file: File) {
+        val activity = activityReference.get()?.takeUnless { it.isFinishing || it.isDestroyed }
+            ?: error("页面已关闭，请重新打开更新页面")
         if (!activity.packageManager.canRequestPackageInstalls()) {
             activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}")))
             return

@@ -13,6 +13,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.arcxya09.touch.AppViewModel
+import com.arcxya09.touch.Screen
 import com.arcxya09.touch.data.ChatMessage
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Semaphore
@@ -26,7 +27,7 @@ private val thumbnailSlots = Semaphore(2)
     LaunchedEffect(message.id) {
         try {
             bitmap = thumbnailSlots.withPermit {
-                check(vm.mayShowChat && vm.screen == "chat")
+                check(vm.mayShowChat && vm.destination == Screen.Chat)
                 val file = vm.repository.download(message) {}
                 withContext(Dispatchers.IO) {
                     decodeEncryptedImage(file, 512)
@@ -35,7 +36,7 @@ private val thumbnailSlots = Semaphore(2)
         } catch (e: CancellationException) { throw e }
         catch (_: Exception) { failed = true }
     }
-    Box(Modifier.size(240.dp, 180.dp), contentAlignment = Alignment.Center) {
+    Box(Modifier.widthIn(max = 280.dp).fillMaxWidth().aspectRatio(4f / 3f), contentAlignment = Alignment.Center) {
         bitmap?.let { Image(it.asImageBitmap(), "图片预览，点击查看", Modifier.fillMaxSize().testTag("thumbnail-${message.id}"), contentScale = ContentScale.Fit) }
             ?: if (failed) Text("预览加载失败，点击查看", style = MaterialTheme.typography.labelSmall)
             else CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)

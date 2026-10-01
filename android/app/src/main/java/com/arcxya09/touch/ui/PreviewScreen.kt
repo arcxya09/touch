@@ -10,6 +10,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -19,10 +21,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntSize
 import com.arcxya09.touch.AppViewModel
 import com.arcxya09.touch.MainActivity
+import com.arcxya09.touch.Operation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.arcxya09.touch.data.EncryptedAttachment
@@ -34,10 +43,8 @@ import kotlin.math.sqrt
     val (item, file) = preview
     var confirm by remember { mutableStateOf<String?>(null) }
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { vm.screen = "chat" }) { Text("返回") }
-            Text(item.name, Modifier.weight(1f), maxLines = 1, fontWeight = FontWeight.SemiBold)
-        }
+        TouchHeader(item.name, vm::back)
+        SupportingNote(formatFileSize(item.size), Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
             when {
                 item.kind == "image" || item.mime.startsWith("image/") -> BitmapPreview(file)
@@ -50,8 +57,8 @@ import kotlin.math.sqrt
             }
         }
         Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedButton(onClick = { confirm = "open" }, modifier = Modifier.weight(1f)) { Text("外部打开") }
-            Button(onClick = { confirm = "save" }, modifier = Modifier.weight(1f)) { Text("保存文件") }
+            OutlinedButton(onClick = { confirm = "open" }, enabled = !vm.isWorking(Operation.Export), modifier = Modifier.weight(1f)) { Text("外部打开") }
+            Button(onClick = { confirm = "save" }, enabled = !vm.isWorking(Operation.Export), modifier = Modifier.weight(1f)) { Text(if (vm.isWorking(Operation.Export)) "正在保存…" else "保存文件") }
         }
     }
     confirm?.let { action -> Confirm("文件隐私提示", "外部应用及导出文件不受 Touch 的隐私锁保护，可能保留历史、缓存或副本。", { confirm = null }) {
@@ -63,15 +70,30 @@ import kotlin.math.sqrt
 @Composable private fun ZoomImage(bitmap: Bitmap) {
     var scale by remember(bitmap) { mutableFloatStateOf(1f) }
     var offset by remember(bitmap) { mutableStateOf(Offset.Zero) }
+    var viewport by remember { mutableStateOf(IntSize.Zero) }
+    fun bounded(position: Offset, zoom: Float): Offset {
+        val limits = imagePanLimits(viewport.width, viewport.height, bitmap.width, bitmap.height, zoom)
+        return Offset(position.x.coerceIn(-limits.horizontal, limits.horizontal), position.y.coerceIn(-limits.vertical, limits.vertical))
+    }
     val gestures = rememberTransformableState { zoom, pan, _ ->
         scale = (scale * zoom).coerceIn(1f, 5f)
-        offset = if (scale == 1f) Offset.Zero else offset + pan
+        offset = bounded(offset + pan, scale)
     }
-    Image(bitmap.asImageBitmap(), "文件预览", Modifier.fillMaxSize().pointerInput(bitmap) {
-        detectTapGestures(onDoubleTap = { scale = if (scale > 1f) 1f else 2.5f; offset = Offset.Zero })
-    }.transformable(gestures).graphicsLayer {
-        scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y
-    })
+    Box(Modifier.fillMaxSize().clipToBounds().onSizeChanged { viewport = it; offset = bounded(offset, scale) }) {
+        Image(bitmap.asImageBitmap(), "文件预览", Modifier.fillMaxSize().semantics {
+            customActions = listOf(
+                CustomAccessibilityAction("放大图片") { scale = (scale + 0.5f).coerceAtMost(5f); true },
+                CustomAccessibilityAction("恢复原始大小") { scale = 1f; offset = Offset.Zero; true },
+            )
+        }.pointerInput(bitmap) {
+            detectTapGestures(onDoubleTap = { scale = if (scale > 1f) 1f else 2.5f; offset = Offset.Zero })
+        }.transformable(gestures).graphicsLayer {
+            scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y
+        })
+        if (scale > 1f) FilledTonalIconButton(onClick = { scale = 1f; offset = Offset.Zero }, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) {
+            Icon(Icons.Outlined.RestartAlt, "恢复原始大小")
+        }
+    }
 }
 
 @Composable private fun BitmapPreview(file: EncryptedAttachment) {
@@ -94,6 +116,7 @@ import kotlin.math.sqrt
     var error by remember(file) { mutableStateOf<String?>(null) }
     LaunchedEffect(file, page) {
         error = null
+        bitmap = null
         try {
             val result = withContext(Dispatchers.IO) {
                 PdfRenderer(file.descriptor()).use { renderer ->

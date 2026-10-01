@@ -11,6 +11,7 @@ object Retention {
 
 /** Device-local, per account watermarks survive logout and increasing the retention period. */
 class RetentionPolicy(private val vault: LocalVault, private val now: () -> Long = { System.currentTimeMillis() / 1000 }) {
+    private var dirty = false
     private val state by lazy {
         vault.read("retention")?.let { JSONObject(it.toString(Charsets.UTF_8)).also { json ->
             require(json.getInt("schema") in 1..2 && json.getLong("seconds") in 3600..31536000)
@@ -25,15 +26,22 @@ class RetentionPolicy(private val vault: LocalVault, private val now: () -> Long
     }
     val enabled: Boolean @Synchronized get() = state.getBoolean("enabled")
     val seconds: Long @Synchronized get() = state.getLong("seconds")
-    @Synchronized fun cutoff(owner: String): Long {
+    @Synchronized fun visibilityCutoff(owner: String): Long {
         val floors = state.getJSONObject("floors")
         val previous = floors.optLong(owner, 0)
         val next = if (enabled) Retention.cutoff(previous, now(), seconds) else previous
         if (next != previous || !floors.has(owner)) {
-            val candidate = JSONObject(state.toString())
-            candidate.getJSONObject("floors").put(owner, next)
-            vault.write("retention", candidate.toString().toByteArray())
             floors.put(owner, next)
+            dirty = true
+        }
+        return next
+    }
+    /** Persist at maintenance/lifecycle boundaries, rather than once per render tick. */
+    @Synchronized fun cutoff(owner: String): Long {
+        val next = visibilityCutoff(owner)
+        if (dirty) {
+            vault.write("retention", state.toString().toByteArray())
+            dirty = false
         }
         return next
     }

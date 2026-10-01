@@ -73,15 +73,17 @@ class PrivacyInstrumentedTest {
     }
     @Test fun syncRowsAndCursorRollbackTogether() {
         val cache = app.database.cache()
+        val previousCursor = cache.get("meta", "cursor")?.json
+        val id = "rollback-" + java.util.UUID.randomUUID()
         try {
             app.database.runInTransaction {
-                cache.put(TouchDatabase.Item("message", "test", "{}"))
+                cache.put(TouchDatabase.Item("message", id, "{}"))
                 cache.put(TouchDatabase.Item("meta", "cursor", "100"))
                 throw IllegalStateException("simulated crash before commit")
             }
         } catch (_: IllegalStateException) { }
-        assertNull(cache.get("message", "test"))
-        assertNull(cache.get("meta", "cursor"))
+        assertNull(cache.get("message", id))
+        assertEquals(previousCursor, cache.get("meta", "cursor")?.json)
     }
     @Test fun expiredTimerDoesNotRingOnColdStart() {
         app.getSharedPreferences("pomodoro", Context.MODE_PRIVATE).edit()

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.arcxya09.touch.ImagePanLimitsTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-10-01T09:37:54.318Z" hostname="DESKTOP-3KH10BQ" time="0.01">
+  <properties/>
+  <testcase name="unmeasuredViewportHasNoPanRange" classname="com.arcxya09.touch.ImagePanLimitsTest" time="0.003"/>
+  <testcase name="wideImageOnlyPansBeyondFittedHorizontalEdge" classname="com.arcxya09.touch.ImagePanLimitsTest" time="0.005"/>
+  <testcase name="portraitLetterboxCannotBePannedIntoEmptySpace" classname="com.arcxya09.touch.ImagePanLimitsTest" time="0.0"/>
+  <testcase name="unzoomedImageCannotBeDraggedOutOfItsFrame" classname="com.arcxya09.touch.ImagePanLimitsTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

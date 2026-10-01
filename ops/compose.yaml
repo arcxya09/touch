@@ -18,7 +18,12 @@ services:
     mem_limit: 192m
     logging: {driver: json-file, options: {max-size: 10m, max-file: "3"}}
   app:
-    build: ../server
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+      args:
+        TOUCH_VERSION: ${TOUCH_VERSION:-}
+        TOUCH_BUILD: ${TOUCH_BUILD:-local}
     environment:
       DATABASE_URL: postgresql+psycopg://touch:${POSTGRES_PASSWORD}@db:5432/touch
       DATA_DIR: /data

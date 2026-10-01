@@ -1,0 +1,461 @@
+{
+  "schemaVersion": 1,
+  "kind": "software-emulator-benchmark-measurement",
+  "measurementExecutionSucceeded": true,
+  "junit": {
+    "tests": 2,
+    "passed": 2,
+    "failed": 0,
+    "skipped": 0,
+    "scope": "measurement workflow execution only"
+  },
+  "formalPerformanceGatePassed": false,
+  "physicalDeviceAcceptance": false,
+  "apk": {
+    "path": "android/app/build/outputs/apk/benchmark/app-benchmark.apk",
+    "sha256": "29de250438f69ff3e80b2d53bd3a57744c5e3619d4d099759f7e74b4a66cf6b7",
+    "bytes": 11354901,
+    "applicationId": "com.arcxya09.touch.benchmark",
+    "variant": "benchmark",
+    "minified": true,
+    "versionName": "2.0.0",
+    "versionCode": 16
+  },
+  "environment": {
+    "emulator": true,
+    "systemImageApi": "36.1",
+    "apiLevelReported": 36,
+    "architecture": "x86_64",
+    "graphicsRenderer": "SwiftShader",
+    "softwareRendering": true,
+    "runnerContext": {
+      "build": {
+        "brand": "google",
+        "device": "emu64xa",
+        "fingerprint": "google/sdk_gphone64_x86_64/emu64xa:16/BP41.250822.007/14042983:user/release-keys",
+        "id": "BP41.250822.007",
+        "model": "sdk_gphone64_x86_64",
+        "type": "user",
+        "version": {
+          "codename": "REL",
+          "sdk": 36
+        }
+      },
+      "cpuCoreCount": 4,
+      "cpuLocked": false,
+      "cpuMaxFreqHz": 2000,
+      "memTotalBytes": 2061955072,
+      "sustainedPerformanceModeEnabled": false,
+      "artMainlineVersion": 361040400,
+      "osCodenameAbbreviated": "REL",
+      "compilationMode": "run-from-apk",
+      "payload": {}
+    },
+    "suppressedBenchmarkErrors": [
+      "EMULATOR"
+    ],
+    "hostBuild": {
+      "os": "Windows",
+      "jdkMajor": 21,
+      "gradleArguments": [
+        "--no-daemon"
+      ],
+      "workspaceMapping": "subst T: to workspace root to avoid non-ASCII native-tool paths",
+      "mappingRequiredInCi": false
+    }
+  },
+  "sources": {
+    "benchmarkJson": {
+      "path": "docs/quality/evidence/performance-v2-api36.json",
+      "sha256": "f744957f3f65390eaec1d1707512b0ae9d520a2fd5bed6b0d0406011258d49bb"
+    },
+    "instrumentationLog": {
+      "path": "docs/quality/evidence/performance-v2-api36.txt",
+      "sha256": "1f7899d9c4769667f4875c9990e260fc65118d494a257f7d72c8e71c1f785977"
+    },
+    "apkMetadata": {
+      "path": "android/app/build/outputs/apk/benchmark/output-metadata.json",
+      "sha256": "05a6e63f8914eafdecac030f8ed4b01def32db9d0fa7ff53cf643f96ef99bade"
+    }
+  },
+  "coldStartup": {
+    "scenario": "coldTimer",
+    "iterations": 20,
+    "unit": "ms",
+    "metrics": {
+      "timeToFullDisplayMs": {
+        "samples": 20,
+        "minimum": 905.340298,
+        "median": 1293.073,
+        "p95NearestRank": 1494.10929,
+        "maximum": 1541.11518,
+        "runs": [
+          1086.26744,
+          905.340298,
+          1254.088216,
+          1172.747437,
+          1218.455,
+          1243.599716,
+          1296.919444,
+          1345.593825,
+          1494.10929,
+          1289.226556,
+          1317.028171,
+          1304.19592,
+          1406.830963,
+          1424.03143,
+          1323.891648,
+          1236.286268,
+          1541.11518,
+          1489.109293,
+          1269.708929,
+          1272.602201
+        ]
+      },
+      "timeToInitialDisplayMs": {
+        "samples": 20,
+        "minimum": 905.340298,
+        "median": 1293.073,
+        "p95NearestRank": 1494.10929,
+        "maximum": 1541.11518,
+        "runs": [
+          1086.26744,
+          905.340298,
+          1254.088216,
+          1172.747437,
+          1218.455,
+          1243.599716,
+          1296.919444,
+          1345.593825,
+          1494.10929,
+          1289.226556,
+          1317.028171,
+          1304.19592,
+          1406.830963,
+          1424.03143,
+          1323.891648,
+          1236.286268,
+          1541.11518,
+          1489.109293,
+          1269.708929,
+          1272.602201
+        ]
+      }
+    },
+    "p95Method": "nearest rank: sorted(runs)[ceil(0.95 * n) - 1]"
+  },
+  "scroll": {
+    "scenario": "conversationAndChatFrames",
+    "iterations": 10,
+    "frameCount": {
+      "samples": 10,
+      "minimum": 670.0,
+      "median": 864.0,
+      "p95NearestRank": 930.0,
+      "maximum": 930.0,
+      "runs": [
+        670.0,
+        739.0,
+        921.0,
+        930.0,
+        825.0,
+        774.0,
+        907.0,
+        753.0,
+        903.0,
+        914.0
+      ],
+      "unit": "frames"
+    },
+    "sampledMetrics": {
+      "frameDurationCpuMs": {
+        "reportedPercentiles": {
+          "P50": 37.926977,
+          "P90": 54.599160499999996,
+          "P95": 62.4690135,
+          "P99": 80.06496929999996
+        },
+        "samplesPerIteration": [
+          670,
+          739,
+          921,
+          930,
+          825,
+          774,
+          907,
+          753,
+          903,
+          914
+        ],
+        "sampleCount": 8336
+      },
+      "frameOverrunMs": {
+        "reportedPercentiles": {
+          "P50": 33.2354785,
+          "P90": 55.4346695,
+          "P95": 69.16699325,
+          "P99": 93.55883334999994
+        },
+        "samplesPerIteration": [
+          670,
+          739,
+          921,
+          930,
+          825,
+          774,
+          907,
+          753,
+          903,
+          914
+        ],
+        "sampleCount": 8336
+      }
+    },
+    "percentileMethod": "P50/P90/P95/P99 preserved exactly as reported by AndroidX benchmark; not recomputed using cold-start nearest rank",
+    "softwareEmulatorFrameOverrunPositive": {
+      "predicate": "frameOverrunMs > 0",
+      "sampleCount": 8336,
+      "matchingSamples": 8193,
+      "ratio": 0.9828454894433781,
+      "percent": 98.28454894433781,
+      "aggregation": "all raw frame samples concatenated across 10 iterations; weighted by sampled frame count",
+      "perIteration": [
+        {
+          "sampleCount": 670,
+          "matchingSamples": 655
+        },
+        {
+          "sampleCount": 739,
+          "matchingSamples": 725
+        },
+        {
+          "sampleCount": 921,
+          "matchingSamples": 909
+        },
+        {
+          "sampleCount": 930,
+          "matchingSamples": 911
+        },
+        {
+          "sampleCount": 825,
+          "matchingSamples": 808
+        },
+        {
+          "sampleCount": 774,
+          "matchingSamples": 762
+        },
+        {
+          "sampleCount": 907,
+          "matchingSamples": 892
+        },
+        {
+          "sampleCount": 753,
+          "matchingSamples": 737
+        },
+        {
+          "sampleCount": 903,
+          "matchingSamples": 892
+        },
+        {
+          "sampleCount": 914,
+          "matchingSamples": 902
+        }
+      ],
+      "interpretation": "Software-emulator frameOverrun > 0 observation only; not a formal physical-device slow-frame threshold or acceptance result"
+    },
+    "timingUnit": "ms"
+  },
+  "traces": {
+    "localDirectory": ".local/quality-performance-v2",
+    "count": 30,
+    "totalBytes": 98681240,
+    "files": [
+      {
+        "benchmark": "coldTimer",
+        "file": "StartupBenchmarks_coldTimer_iter000_2026-10-01-09-39-12.perfetto-trace",
+        "bytes": 1739573,
+        "sha256": "941b096b065c9317c9785f7790fc526beebb855c6e26edac0fe3c2389a9cb160"
+      },
+      {
+        "benchmark": "coldTimer",
+        "file": "StartupBenchmarks_coldTimer_iter001_2026-10-01-09-39-17.perfetto-trace",
+        "bytes": 981138,
+        "sha256": "557b739621582ccc20f07d947bed7f45214e48947c84296d4e6c8c3f4bfbe4d2"
+      },
+      {
+        "benchmark": "coldTimer",
+        "file": "StartupBenchmarks_coldTimer_iter002_2026-10-01-09-39-22.perfetto-trace",
+        "bytes": 1105210,
+        "sha256": "7b35ab8fc42a9dc49f0c614bf4d277965442b3491e7c3358de54ea3e3f81752a"
+      },
+      {
+        "benchmark": "coldTimer",
+        "file": "StartupBenchmarks_coldTimer_iter003_2026-10-01-09-39-27.perfetto-trace",
+        "bytes": 965717,
+        "sha256": "8fcc801dee1ac3ee135888f38accff92a9112285ca8acf95623dbf5ff830f785"
+      },
+      {
+        "benchmark": "coldTimer",
+        "file": "StartupBenchmarks_coldTimer_iter004_2026-10-01-09-39-33.perfetto-trace",
+        "bytes": 1086934,
+        "sha256": "9573562fde6c7ef4be0be8db84211d52bc19bd03cb57270c53c0e6355b87a84a"
+      },
+      {
+        "benchmark": "coldTimer",
+        "file": "StartupBenchmarks_coldTimer_iter005_2026-10-01-09-39-38.perfetto-trace",
+        "bytes": 1030777,
+        "sha256": "66b99caaee2b06f636349de9e9a5b96e1ff21291c15972ea67a4a4db49f3a8a2"
+      },
+      {
+        "benchmark": "coldTimer",
+        "file": "StartupBenchmarks_coldTimer_iter006_2026-10-01-09-39-44.perfetto-trace",
+        "bytes": 1090622,
+        "sha256": "f6ee9efce6940328ea600ae4338b5d442d42796a0395ac8b99863b302f20b544"
+      },
+      {
+        "benchmark": "coldTimer",
+        "file": "StartupBenchmarks_coldTimer_iter007_2026-10-01-09-39-49.perfetto-trace",
+        "bytes": 952516,
+        "sha256": "a324d17bad34c7516d3e9c29a3331fc788f1a1ab865d7819d87d1d629ec6886e"
+      },
+      {
+        "benchmark": "coldTimer",
+        "file": "StartupBenchmarks_coldTimer_iter008_2026-10-01-09-39-55.perfetto-trace",
+        "bytes": 1119529,
+        "sha256": "0b5886b919d921757cfcb6979efb525b3b998ed55b75c0397cb3f743acf03544"
+      },
+      {
+        "benchmark": "coldTimer",
+        "file": "StartupBenchmarks_coldTimer_iter009_2026-10-01-09-40-01.perfetto-trace",
+        "bytes": 976368,
+        "sha256": "d9b4ec7d6dd576aba23d12979594a73661646f04cc4d99e725d88bcb7f18ff37"
+      },
+      {
+        "benchmark": "coldTimer",
+        "file": "StartupBenchmarks_coldTimer_iter010_2026-10-01-09-40-06.perfetto-trace",
+        "bytes": 1076817,
+        "sha256": "78d1da3e0ce621b7eb0b2c64461475bc24169886250a12dd58f44b5f832c6f6a"
+      },
+      {
+        "benchmark": "coldTimer",
+        "file": "StartupBenchmarks_coldTimer_iter011_2026-10-01-09-40-12.perfetto-trace",
+        "bytes": 956937,
+        "sha256": "898c7100bf0186de275f9f90eb5a3d6777741338489496f50451dc940a6cd425"
+      },
+      {
+        "benchmark": "coldTimer",
+        "file": "StartupBenchmarks_coldTimer_iter012_2026-10-01-09-40-19.perfetto-trace",
+        "bytes": 1027751,
+        "sha256": "2ce6b0924ce507ef3a90da2b92650e8eae6299d996a1e0b4d7ceea252137caee"
+      },
+      {
+        "benchmark": "coldTimer",
+        "file": "StartupBenchmarks_coldTimer_iter013_2026-10-01-09-40-25.perfetto-trace",
+        "bytes": 985443,
+        "sha256": "8b4d7bd1ab8dab315ccfde0eb1b55332baacddef3b22f874a3a54bd308497534"
+      },
+      {
+        "benchmark": "coldTimer",
+        "file": "StartupBenchmarks_coldTimer_iter014_2026-10-01-09-40-30.perfetto-trace",
+        "bytes": 1002797,
+        "sha256": "dd2ec0469743a3dfc06a77bee956dae280d6dc1a53131f59c84903e54077a109"
+      },
+      {
+        "benchmark": "coldTimer",
+        "file": "StartupBenchmarks_coldTimer_iter015_2026-10-01-09-40-35.perfetto-trace",
+        "bytes": 943146,
+        "sha256": "086ef79df666c53fbd6560201d8976e4706d8e8d08bbb6c6a67aca2c4a36d74a"
+      },
+      {
+        "benchmark": "coldTimer",
+        "file": "StartupBenchmarks_coldTimer_iter016_2026-10-01-09-40-41.perfetto-trace",
+        "bytes": 969651,
+        "sha256": "2d1aa6ee19329adceed7419211e804d8e23d247b7427e580e44e592f50d570ac"
+      },
+      {
+        "benchmark": "coldTimer",
+        "file": "StartupBenchmarks_coldTimer_iter017_2026-10-01-09-40-47.perfetto-trace",
+        "bytes": 1011872,
+        "sha256": "b2ab07e236f3ae1a5780d68a06d71167bd230eb1beca32029c59b4f97635321c"
+      },
+      {
+        "benchmark": "coldTimer",
+        "file": "StartupBenchmarks_coldTimer_iter018_2026-10-01-09-40-53.perfetto-trace",
+        "bytes": 998760,
+        "sha256": "b7e4d82781d91427fa00a5c2b0b25bba56385d879d886a0745b4796c67d6b71a"
+      },
+      {
+        "benchmark": "coldTimer",
+        "file": "StartupBenchmarks_coldTimer_iter019_2026-10-01-09-40-58.perfetto-trace",
+        "bytes": 937375,
+        "sha256": "57bb1133f1ee4677f692f477a7301f34267328ad3a9868815e3923f92f499530"
+      },
+      {
+        "benchmark": "conversationAndChatFrames",
+        "file": "ScrollBenchmarks_conversationAndChatFrames_iter000_2026-10-01-09-42-10.perfetto-trace",
+        "bytes": 6901203,
+        "sha256": "c22eec27655748015e641d6498458592d659e435a663e5665206c0ca7b379684"
+      },
+      {
+        "benchmark": "conversationAndChatFrames",
+        "file": "ScrollBenchmarks_conversationAndChatFrames_iter001_2026-10-01-09-43-18.perfetto-trace",
+        "bytes": 7303782,
+        "sha256": "adbe3c7dd0b1d36ca7ac0862841e24d58c24b1a7ce0181433ee773b39fc4bbe1"
+      },
+      {
+        "benchmark": "conversationAndChatFrames",
+        "file": "ScrollBenchmarks_conversationAndChatFrames_iter002_2026-10-01-09-44-26.perfetto-trace",
+        "bytes": 8233504,
+        "sha256": "ede2eeac33ee9a9a5bc817be0a1c4a1de6fc361b4d5731178c74cfa57601afea"
+      },
+      {
+        "benchmark": "conversationAndChatFrames",
+        "file": "ScrollBenchmarks_conversationAndChatFrames_iter003_2026-10-01-09-45-34.perfetto-trace",
+        "bytes": 8331796,
+        "sha256": "2b154fb4d43abda15fb8d0513bb76ba435700d9510ca9d7387439c6766fbe93e"
+      },
+      {
+        "benchmark": "conversationAndChatFrames",
+        "file": "ScrollBenchmarks_conversationAndChatFrames_iter004_2026-10-01-09-46-42.perfetto-trace",
+        "bytes": 7505078,
+        "sha256": "867b3a54c021a9de6c0bc1825a606904a933d2e68fb923662ac962477968bf0a"
+      },
+      {
+        "benchmark": "conversationAndChatFrames",
+        "file": "ScrollBenchmarks_conversationAndChatFrames_iter005_2026-10-01-09-47-50.perfetto-trace",
+        "bytes": 7317166,
+        "sha256": "1376cec7bf579689e62b003b2049aa8acccd0a7d7c8af97851ae4e502ec39cba"
+      },
+      {
+        "benchmark": "conversationAndChatFrames",
+        "file": "ScrollBenchmarks_conversationAndChatFrames_iter006_2026-10-01-09-48-58.perfetto-trace",
+        "bytes": 8224837,
+        "sha256": "762974ed4372220e760b9a2764a2a53566519f5a8ab3d013b2a313879fa14aba"
+      },
+      {
+        "benchmark": "conversationAndChatFrames",
+        "file": "ScrollBenchmarks_conversationAndChatFrames_iter007_2026-10-01-09-50-06.perfetto-trace",
+        "bytes": 7252909,
+        "sha256": "11ff0713bece01acb983c77f35276f25c690aaba7d71bb153cf90b3f161c5528"
+      },
+      {
+        "benchmark": "conversationAndChatFrames",
+        "file": "ScrollBenchmarks_conversationAndChatFrames_iter008_2026-10-01-09-51-14.perfetto-trace",
+        "bytes": 8246833,
+        "sha256": "6f38647bf852e05c648505d4953e86cbbd4a9fc07c7f0c88caa50fcb3e9db573"
+      },
+      {
+        "benchmark": "conversationAndChatFrames",
+        "file": "ScrollBenchmarks_conversationAndChatFrames_iter009_2026-10-01-09-52-22.perfetto-trace",
+        "bytes": 8405199,
+        "sha256": "7478fd013426731a8b2fcfcd0d31625b14c61743a8f85a9948b6b7044d40b630"
+      }
+    ]
+  },
+  "limitations": [
+    "SwiftShader software rendering and emulator host scheduling are not representative of domestic physical Android devices.",
+    "Frame CPU P95 around 62.5 ms and overrun P95 around 69.2 ms are retained as unfavorable measured observations; no smoothness or performance-pass claim is made.",
+    "No prior-version controlled baseline was measured; this does not establish a performance improvement.",
+    "The Baseline Profile collector ran earlier on candidate 1.0.14; this measurement uses the minified Touch 2.0.0/versionCode 16 benchmark APK consuming that profile."
+  ]
+}

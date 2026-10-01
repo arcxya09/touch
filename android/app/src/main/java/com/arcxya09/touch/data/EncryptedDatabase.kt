@@ -12,17 +12,27 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 import java.io.File
 
 object EncryptedDatabase {
+    val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS visibility_marks (ownerId TEXT NOT NULL, messageId TEXT NOT NULL, PRIMARY KEY(ownerId,messageId))")
+            db.execSQL("CREATE TABLE IF NOT EXISTS local_cutoffs (ownerId TEXT NOT NULL PRIMARY KEY, throughTime INTEGER NOT NULL)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS file_deletions (id TEXT NOT NULL PRIMARY KEY)")
+            // Only the current owner's legacy rules exist in v2. Never invent rules for other accounts.
+            db.execSQL("INSERT OR IGNORE INTO visibility_marks(ownerId,messageId) SELECT owner.json,hidden.id FROM items hidden CROSS JOIN items owner WHERE hidden.kind='hidden-message' AND owner.kind='meta' AND owner.id='owner'")
+            db.execSQL("INSERT OR REPLACE INTO local_cutoffs(ownerId,throughTime) SELECT owner.json,CAST(floor.json AS INTEGER) FROM items floor CROSS JOIN items owner WHERE floor.kind='meta' AND floor.id='local-clear-time' AND owner.kind='meta' AND owner.id='owner'")
+        }
+    }
     val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("ALTER TABLE items ADD COLUMN conversationId TEXT NOT NULL DEFAULT ''")
             db.execSQL("ALTER TABLE items ADD COLUMN seq INTEGER NOT NULL DEFAULT 0")
             db.execSQL("ALTER TABLE items ADD COLUMN createdAt INTEGER NOT NULL DEFAULT 0")
             db.execSQL("ALTER TABLE items ADD COLUMN attachmentId TEXT NOT NULL DEFAULT ''")
-            db.query("SELECT kind,id,json FROM items WHERE kind IN ('message','attachment')").use { rows ->
+            db.query("SELECT kind,id,json FROM items WHERE kind IN ('message','attachment','draft')").use { rows ->
                 while (rows.moveToNext()) {
                     val item = TouchDatabase.Item(rows.getString(0), rows.getString(1), rows.getString(2))
                     db.execSQL("UPDATE items SET conversationId=?,seq=?,createdAt=?,attachmentId=? WHERE kind=? AND id=?",
-                        arrayOf(item.conversationId, item.seq, item.createdAt, item.attachmentId, item.kind, item.id))
+                        arrayOf<Any>(item.conversationId, item.seq, item.createdAt, item.attachmentId, item.kind, item.id))
                 }
             }
             db.execSQL("CREATE INDEX index_items_kind_conversationId_seq ON items(kind,conversationId,seq)")
@@ -56,7 +66,7 @@ object EncryptedDatabase {
             }
             // DELETE journaling limits retention of deleted pages; SQLCipher encrypts journals too.
             .setJournalMode(RoomDatabase.JournalMode.TRUNCATE)
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
             .addCallback(object : RoomDatabase.Callback() {
                 override fun onOpen(db: SupportSQLiteDatabase) { db.query("PRAGMA secure_delete=ON").use { check(it.moveToFirst() && it.getInt(0) == 1) } }
                 override fun onDestructiveMigration(db: SupportSQLiteDatabase) { error("禁止清空数据库升级") }
@@ -74,7 +84,13 @@ object EncryptedDatabase {
             source.rawQuery("PRAGMA wal_checkpoint(TRUNCATE)", null).use { if (it.moveToFirst()) check(it.getInt(0) == 0) }
             source.rawQuery("PRAGMA journal_mode=DELETE", null).close()
             version = source.version
-            for (table in listOf("items", "outbox")) source.rawQuery("SELECT count(*) FROM $table", null).use {
+            val tables = mutableListOf<String>()
+            for (table in listOf("items", "outbox", "visibility_marks", "local_cutoffs", "file_deletions")) {
+                source.rawQuery("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", arrayOf(table)).use {
+                    if (it.moveToFirst()) tables.add(table)
+                }
+            }
+            for (table in tables) source.rawQuery("SELECT count(*) FROM $table", null).use {
                 check(it.moveToFirst()); counts[table] = it.getLong(0)
             }
             source.execSQL("ATTACH DATABASE ? AS encrypted KEY ?", arrayOf(target.path, passphrase.toString(Charsets.UTF_8)))

@@ -46,6 +46,29 @@ class MessageInteractionTest {
         assertTrue(messageLinks("hello user@example.com javascript:alert(1) intent://settings").isEmpty())
     }
 
+    @Test fun messageActionsAndNativeSelectionAreMutuallyExclusive() {
+        val selecting = mutableStateOf(false)
+        var actions = 0
+        compose.setContent { TouchTheme { Column(Modifier.padding(top = 64.dp)) {
+            MessageText("copyme", {}, Modifier.testTag("message"),
+                onLongPress = if (selecting.value) null else ({ actions++ }))
+        } } }
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        val copy = By.text(java.util.regex.Pattern.compile("Copy|复制"))
+        compose.onNodeWithTag("message").performTouchInput { longClick(center) }
+        compose.runOnIdle { assertEquals(1, actions) }
+        assertFalse(device.hasObject(copy))
+        compose.runOnIdle { selecting.value = true }
+        compose.onNodeWithTag("message").performTouchInput { longClick(center) }
+        assertTrue(device.wait(Until.hasObject(copy), 5000))
+        compose.runOnIdle { assertEquals(1, actions) }
+        // This fixture Activity has no navigation handler; dispose the selection container itself.
+        compose.runOnIdle { selecting.value = false }
+        compose.onNodeWithTag("message").performTouchInput { longClick(center) }
+        compose.runOnIdle { assertEquals(2, actions) }
+        assertFalse(device.hasObject(copy))
+    }
+
     @Test fun tapOpensLinkButLongPressCopiesSelectedText() {
         var opened: String? = null
         compose.setContent { TouchTheme { Column(Modifier.padding(top = 64.dp)) {

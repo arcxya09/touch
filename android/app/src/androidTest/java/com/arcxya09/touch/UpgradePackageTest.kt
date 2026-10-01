@@ -5,21 +5,27 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import com.arcxya09.touch.update.UpdateManifest
 import com.arcxya09.touch.update.Updater
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import org.junit.Assert.*
-import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.File
 
 class UpgradePackageTest {
-    @Test fun checksRealApkIdentityHashAndCertificate() {
-        assumeTrue(InstrumentationRegistry.getArguments().getString("upgradeProbe") == "packages")
+    @Test fun checksRealApkIdentityHashAndCertificate() = runBlocking<Unit> {
+        val arguments = InstrumentationRegistry.getArguments()
+        require(arguments.getString("upgradeProbe") == "packages") { "Run this dedicated test with upgradeProbe=packages" }
+        val expectedVersion = requireNotNull(arguments.getString("expectedVersionCode")?.toLongOrNull()) { "expectedVersionCode is required" }
         val app = ApplicationProvider.getApplicationContext<TouchApp>()
         val dir = app.getExternalFilesDir(null)!!
         val manifest = UpdateManifest.parse(JSONObject(File(dir, "update.json").readText()))
+        assertEquals(expectedVersion, manifest.versionCode)
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            scenario.onActivity { activity ->
-                val updater = Updater(activity, app.repository.api)
+            lateinit var updater: Updater
+            scenario.onActivity { activity -> updater = Updater(activity, app.repository.api) }
+            withContext(Dispatchers.IO) {
                 updater.verify(File(dir, "touch.apk"), manifest)
                 assertThrows(IllegalStateException::class.java) { updater.verify(File(dir, "touch.apk"), manifest.copy(sha256 = "0".repeat(64))) }
                 assertThrows(IllegalStateException::class.java) { updater.verify(File(dir, "touch.apk"), manifest.copy(apkSize = manifest.apkSize + 1)) }

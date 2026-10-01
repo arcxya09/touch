@@ -1,4 +1,5 @@
 .local/
+ops-monitor/
 .kotlin/
 .venv/
 __pycache__/

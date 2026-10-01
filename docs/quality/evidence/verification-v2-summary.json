@@ -1,0 +1,473 @@
+{
+  "schemaVersion": 1,
+  "candidate": {
+    "versionName": "2.0.0",
+    "versionCode": 16,
+    "sourceState": "local-uncommitted-workspace",
+    "published": false
+  },
+  "device": {
+    "avd": "Touch_Quality",
+    "serial": "emulator-5562",
+    "api": "36.1",
+    "runtimeSdk": 36,
+    "model": "sdk_gphone64_x86_64",
+    "physical": false,
+    "domesticOem": false
+  },
+  "server": {
+    "passed": 105,
+    "skipped": 1,
+    "xml": {
+      "tests": "106",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "1",
+      "time": "46.702"
+    },
+    "report": "server-tests.xml",
+    "skipReason": "real PostgreSQL lock contention requires an isolated PostgreSQL database"
+  },
+  "jvm": {
+    "debugPassed": 29,
+    "releasePassed": 29,
+    "distinctCases": 29,
+    "skipped": 0
+  },
+  "deviceTests": {
+    "distinctCases": 44,
+    "passed": 44,
+    "latestFailed": 0,
+    "latestSkipped": 0,
+    "runs": [
+      {
+        "log": "device-v2-core.txt",
+        "completed": 36,
+        "counts": {
+          "passed": 35,
+          "skipped": 1
+        }
+      },
+      {
+        "log": "device-v2-network.txt",
+        "completed": 8,
+        "counts": {
+          "passed": 6,
+          "failed": 2
+        }
+      },
+      {
+        "log": "device-v2-notification-design.txt",
+        "completed": 7,
+        "counts": {
+          "passed": 7
+        }
+      },
+      {
+        "log": "device-v2-static-design-repeat.txt",
+        "completed": 4,
+        "counts": {
+          "passed": 4
+        }
+      },
+      {
+        "log": "device-v2-onboarding.txt",
+        "completed": 1,
+        "counts": {
+          "passed": 1
+        }
+      }
+    ],
+    "cases": [
+      {
+        "className": "com.arcxya09.touch.AlertInstrumentedTest",
+        "test": "backgroundReceivePrivacyPauseAndRevocation",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-notification-design.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.AlertInstrumentedTest",
+        "test": "encryptedOptInIsAccountBoundAndAlwaysResetsToDiscreet",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-notification-design.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.AttachmentDraftInstrumentedTest",
+        "test": "queuedAttachmentPreservesTextAndConsumesOnlyItsReply",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.BrowserReturnTest",
+        "test": "webLinkLeavesAppAndReturnRequiresUnlock",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-network.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.ConversationOnboardingTest",
+        "test": "firstLoginChoicePersistsAndDeletedHistoryDoesNotReturn",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-onboarding.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.DataBoundaryTest",
+        "test": "cancelAfterHeadersInterruptsOnlyThatRequestIncludingBodyRead",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.DataBoundaryTest",
+        "test": "interruptedFileDeletionIsPersistedAndRetriedAfterDatabaseReopens",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.DataBoundaryTest",
+        "test": "missingAccountMetadataFailsClosedWithoutPurgingRecoverableRows",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.DataBoundaryTest",
+        "test": "queueingConsumesOnlyTheSubmittedTextAndNeverAnAttachmentDraft",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.DataBoundaryTest",
+        "test": "unreadableCredentialsSealContentAndRequireOriginalAccount",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.DataBoundaryTest",
+        "test": "visibilityRulesSurviveAccountCacheReplacementAndRemainAccountScoped",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.DesignSystemInstrumentedTest",
+        "test": "messageMenuAndLinksExposeIndependentAccessibleActions",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-static-design-repeat.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.DesignSystemInstrumentedTest",
+        "test": "settingsToggleHasOneAccessibleSwitchAndWholeRowAction",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-static-design-repeat.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.DesignSystemInstrumentedTest",
+        "test": "threeKeyScreensRenderLightDarkAndRecoveryFixturesOffline",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-static-design-repeat.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.DesignSystemInstrumentedTest",
+        "test": "timerActionsRemainReachableInSmallLargeTextAndDarkLayouts",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-static-design-repeat.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.ExportRecoveryTest",
+        "test": "authorizedRequestAndInterruptedDestinationSurviveRecreationOnlyInsideEncryptedVault",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.LiveChatInstrumentedTest",
+        "test": "chatAndAttachmentPreviewsOverProductionTls",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-network.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.LocalMessageActionsTest",
+        "test": "deletionAndClearSurviveReloadWithoutDiscardingAccountSettings",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.LocalStorageInstrumentedTest",
+        "test": "legacyPlaintextAttachmentIsEncryptedBeforeAccessAndExpiredCopyIsDeleted",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.LocalStorageInstrumentedTest",
+        "test": "plaintextDatabaseMigratesAtomicallyAndReopensWithAllRows",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.LocalStorageInstrumentedTest",
+        "test": "policySurvivesClockRollbackAndFailsClosedOnTampering",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.LocalStorageInstrumentedTest",
+        "test": "purgeIncludesOutboxAndFilesAndNeverRestoresHistoryAfterLogoutOrLongerWindow",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.LocalStorageInstrumentedTest",
+        "test": "retentionIsOffByDefaultAndDisablingFreezesFloorAcrossRestart",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.LocalStorageInstrumentedTest",
+        "test": "streamingEncryptionSupportsImagesPdfSeekingAndRejectsTamperingAndExpiredHandles",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.LocalStorageInstrumentedTest",
+        "test": "upgradeTurnsOldAutomaticRetentionOffWithoutLosingDestroyedFloor",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.MessageInteractionTest",
+        "test": "identifiesWebAddressesAndPreservesOriginalOffsets",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.MessageInteractionTest",
+        "test": "messageActionsAndNativeSelectionAreMutuallyExclusive",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.MessageInteractionTest",
+        "test": "progressNeverMovesContent",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.MessageInteractionTest",
+        "test": "tapOpensLinkButLongPressCopiesSelectedText",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.NotificationNavigationTest",
+        "test": "coldAndWarmMessageIntentsRespectPrivacyAndOpenTheConversation",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-notification-design.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.PrivacyInstrumentedTest",
+        "test": "backgroundAndRecreationAlwaysRelock",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.PrivacyInstrumentedTest",
+        "test": "coldStartHidesLoginUntilGesture",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.PrivacyInstrumentedTest",
+        "test": "expiredTimerDoesNotRingOnColdStart",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.PrivacyInstrumentedTest",
+        "test": "markerWithMissingConfigurationFailsClosed",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.PrivacyInstrumentedTest",
+        "test": "syncRowsAndCursorRollbackTogether",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.ProfileInstrumentedTest",
+        "test": "profilesRetentionAndReadIndicatorRespectRole",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-network.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.ReplyStorageTest",
+        "test": "fiftyThousandRowsUseBoundedIndexedPagesAndExpiryQueries",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.ReplyStorageTest",
+        "test": "realV1MigrationPreservesRowsAndBuildsIndexesWithoutPlaintext",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.SafetyPreviewTest",
+        "test": "encryptedImageThumbnailAndRecentTaskToggle",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-network.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.SafetyPreviewTest",
+        "test": "motionExitRemovesTaskAndReopensPrivacyLocked",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-network.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.StoragePerformanceTest",
+        "test": "recordsFiftyThousandMessagePageAndBoundedCleanupTimings",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.ViewModelConversationIsolationTest",
+        "test": "delayedDraftCannotOverwriteNewVisitToSameConversation",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.ViewModelConversationIsolationTest",
+        "test": "delayedMessagesCannotOverwriteNewVisitToSameConversation",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      },
+      {
+        "className": "com.arcxya09.touch.VisibilityMigrationTest",
+        "test": "versionTwoRulesMigrateWithoutDestroyingContentOrOutbox",
+        "statusCode": 0,
+        "result": "passed",
+        "log": "device-v2-core.txt"
+      }
+    ],
+    "history": "Core run initially lacked notification fixture arguments (1 skip); network run had 2 stale test expectations/selectors. Updated tests passed in final notification/design run. Historical logs are retained."
+  },
+  "design": {
+    "count": 14,
+    "pixelThreshold": 0,
+    "maxDiffRatio": 0,
+    "stabilityReport": "design-v2-static-stability/comparison.json",
+    "acceptedReport": "design-v2-accepted-comparison/comparison.json",
+    "accepted": true,
+    "manualReview": "Two small-screen baseline captures were corrected to remove click ripples; twelve remaining baseline files were unchanged."
+  },
+  "lint": {
+    "debug": {
+      "errors": 0,
+      "warnings": 28,
+      "hints": 4
+    },
+    "release": {
+      "errors": 0,
+      "warnings": 29,
+      "hints": 4
+    }
+  },
+  "performance": {
+    "summary": "performance-v2-summary.json",
+    "formalPerformanceGatePassed": false
+  },
+  "artifacts": [
+    {
+      "path": "dist/touch-2.0-debug.apk",
+      "role": "review-debug",
+      "bytes": 78016597,
+      "sha256": "86ca3da4a91f2f6f58af951d83b64b5dd2dda528d6bb1d8b304f6f00effffe30",
+      "packageName": "com.arcxya09.touch.debug",
+      "versionName": "2.0.0-debug",
+      "versionCode": 16,
+      "apiBase": "https://chat.worldofmy.uk",
+      "signing": "isolated-debug-key",
+      "published": false
+    },
+    {
+      "path": "dist/touch-2.0-local-fixture-debug.apk",
+      "role": "device-tested-loopback-debug",
+      "bytes": 77671211,
+      "sha256": "9096ad5c96fd8f8e95f0719d6367bbfdf0fa6a3a3972c24967d0576c4a1f3a8a",
+      "packageName": "com.arcxya09.touch.debug",
+      "versionName": "2.0.0-debug",
+      "versionCode": 16,
+      "apiBase": "http://127.0.0.1:8010",
+      "signing": "isolated-debug-key",
+      "published": false
+    },
+    {
+      "path": ".local/quality-test-v2.apk",
+      "role": "final-instrumentation-apk",
+      "bytes": 3228496,
+      "sha256": "fde6af42659469450f729d737b8cedcc02b0c6d67ed1f5f6079bc5fb561edcda",
+      "signing": "isolated-debug-key-re-signed-to-match-target",
+      "published": false
+    },
+    {
+      "path": "android/app/build/outputs/apk/release/app-release-unsigned.apk",
+      "role": "unpublished-release-build",
+      "bytes": 11559684,
+      "sha256": "7c41358d5976a673095a6a8473c43898477aae515251eee56555ea8e361913dc",
+      "packageName": "com.arcxya09.touch",
+      "versionName": "2.0.0",
+      "versionCode": 16,
+      "signing": "unsigned",
+      "published": false
+    }
+  ],
+  "unexecuted": [
+    "API 29/31/33/37 device matrix",
+    "domestic Android OEM physical-device acceptance",
+    "real PostgreSQL migrations and concurrency",
+    "historical officially signed APK upgrade",
+    "isolated backup restore",
+    "release workflow environment protection and remote execution",
+    "production deployment and publication"
+  ],
+  "formalReleaseAcceptance": false
+}

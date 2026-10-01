@@ -1,0 +1,12 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuites tests="2" failures="0" errors="0" skipped="0" time="516.282" timestamp="2026-10-01T09:09:03" hostname="localhost">
+  <testsuite name="com.arcxya09.touch.benchmark.BaselineProfiles" tests="2" failures="0" errors="0" skipped="0" time="513.795" timestamp="2026-10-01T09:09:03" hostname="localhost">
+    <properties>
+      <property name="device" value="Touch_Quality(AVD) - 16" />
+      <property name="flavor" value="" />
+      <property name="project" value=":benchmark" />
+    </properties>
+    <testcase name="timer" classname="com.arcxya09.touch.benchmark.BaselineProfiles" time="205.53" />
+    <testcase name="conversationAndChat" classname="com.arcxya09.touch.benchmark.BaselineProfiles" time="308.265" />
+  </testsuite>
+</testsuites>

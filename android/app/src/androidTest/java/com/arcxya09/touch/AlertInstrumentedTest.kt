@@ -58,6 +58,7 @@ class AlertInstrumentedTest {
         repo.initialize(); repo.logout(false)
         repo.login(args.getString("touchTestUser")!!, args.getString("touchTestPassword")!!)
         repo.sync()
+        val owner = repo.api.user!!.id
         val cid = repo.conversations().first().id
         val client = OkHttpClient()
         fun request(path: String, json: JSONObject, token: String? = null): JSONObject {
@@ -75,6 +76,7 @@ class AlertInstrumentedTest {
         File(app.filesDir, "privacy.enabled").writeText("1")
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         lateinit var vm: AppViewModel
+        var recoveryPendingId: String? = null
         val scenario = ActivityScenario.launch(MainActivity::class.java)
         try {
             scenario.onActivity { vm = ViewModelProvider(it)[AppViewModel::class.java] }
@@ -118,8 +120,11 @@ class AlertInstrumentedTest {
             scenario.onActivity { it.finishAndRemoveTask() }
             scenario.close()
             assertTrue(AlertService.running)
-            send("activity-destroyed-message")
+            val retainedMessage = send("activity-destroyed-message")
             await { repo.api.user != null && message() != null }
+            withTimeout(15000) {
+                while (repo.messages(cid).none { it.id == retainedMessage.getString("id") }) delay(100)
+            }
             delay(2500)
             assertTrue(AlertService.running)
             app.sendBroadcast(Intent(app, AlertStopReceiver::class.java))
@@ -134,6 +139,16 @@ class AlertInstrumentedTest {
             device.executeShellCommand("cmd statusbar click-tile $tile")
             await { !AlertService.running && app.alertSettings.read().paused }
             device.executeShellCommand("cmd statusbar collapse")
+            // Interrupt after the real durable queue write, before sending. Background sync
+            // must not submit this pending item, and revocation must not erase it.
+            val pendingText = "revocation-recovery-${UUID.randomUUID()}"
+            val queueResult = runCatching {
+                repo.send(cid, text = pendingText, queued = { throw CancellationException("Keep recovery fixture pending") })
+            }
+            assertTrue(queueResult.exceptionOrNull() is CancellationException)
+            val pendingId = repo.messages(cid).single { it.pending && it.text == pendingText }.id
+            recoveryPendingId = pendingId
+            val pendingBody = withContext(Dispatchers.IO) { repo.db.cache().pendingItems().single { it.id == pendingId }.body }
             // A user-visible activity makes starting a foreground service legitimate.
             ActivityScenario.launch(MainActivity::class.java).use {
                 withContext(Dispatchers.IO) { app.alertSettings.pause(false) }
@@ -143,11 +158,52 @@ class AlertInstrumentedTest {
                 request("/api/v1/auth/login", JSONObject().put("username", args.getString("touchTestUser")).put("password", args.getString("touchTestPassword")))
                 await(45000) { repo.api.user == null && !AlertService.running }
                 assertFalse(app.alertSettings.read().enabled)
-                assertNull(message()); assertTrue(repo.messages(cid).isEmpty())
+                assertNull(message())
+                assertNull(repo.api.session)
+                assertNull(app.secureStore.read("session"))
+                assertTrue(repo.messages(cid).any { it.id == retainedMessage.getString("id") && it.text == "activity-destroyed-message" })
+                withContext(Dispatchers.IO) {
+                    assertEquals(owner, repo.db.cache().get("meta", "owner")?.json)
+                    assertEquals(pendingBody, repo.db.cache().pendingItems().single { it.id == pendingId }.body)
+                }
+            }
+            // Encrypted content remains recoverable, but reopening and unlocking must
+            // expose only the signed-out UI until the original account authenticates.
+            ActivityScenario.launch(MainActivity::class.java).use { recoveryScenario ->
+                lateinit var recovered: AppViewModel
+                recoveryScenario.onActivity { recovered = ViewModelProvider(it)[AppViewModel::class.java] }
+                compose.waitUntil(15000) { recovered.initialized && recovered.gate == SessionGate.Locked }
+                assertFalse(recovered.mayShowChat)
+                assertNull(recovered.user)
+                assertTrue(recovered.messages.isEmpty())
+                assertTrue(recovered.conversations.isEmpty())
+                compose.onNodeWithText("activity-destroyed-message").assertDoesNotExist()
+                compose.onNodeWithText(pendingText).assertDoesNotExist()
+                recoveryScenario.onActivity { recovered.unlock(listOf(0, 1, 2, 5)) }
+                compose.waitUntil(15000) { recovered.gate == SessionGate.SignedOut }
+                compose.onNodeWithText("欢迎回来").assertIsDisplayed()
+                compose.onNodeWithText("activity-destroyed-message").assertDoesNotExist()
+                compose.onNodeWithText(pendingText).assertDoesNotExist()
+                assertTrue(recovered.messages.isEmpty())
+                assertTrue(recovered.conversations.isEmpty())
+                recoveryScenario.onActivity { recovered.login(args.getString("touchTestUser")!!, args.getString("touchTestPassword")!!) }
+                compose.waitUntil(15000) { recovered.gate == SessionGate.Ready && recovered.user?.id == owner && !recovered.busy }
+                recoveryScenario.onActivity { recovered.openConversation(cid) }
+                compose.waitUntil(15000) {
+                    recovered.messages.any { it.id == retainedMessage.getString("id") && it.text == "activity-destroyed-message" } &&
+                        recovered.messages.any { it.id == pendingId && it.pending && it.text == pendingText }
+                }
+                assertEquals(owner, repo.api.user?.id)
+                assertFalse(app.alertSettings.read().enabled)
+                assertFalse(AlertService.running)
+                withContext(Dispatchers.IO) {
+                    assertEquals(pendingBody, repo.db.cache().pendingItems().single { it.id == pendingId }.body)
+                }
             }
         } finally {
             app.alertSettings.disable()
             withContext(Dispatchers.Main) { AlertService.stop(app) }
+            recoveryPendingId?.let { repo.discard(it) }
             runCatching { scenario.close() }
             client.dispatcher.executorService.shutdown()
         }

@@ -3,6 +3,7 @@ import java.util.Properties
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("androidx.baselineprofile")
 }
 val releaseVersion = Properties().apply { rootProject.file("../version.properties").inputStream().use { load(it) } }
 val signingPath = System.getenv("TOUCH_KEYSTORE")
@@ -16,6 +17,9 @@ android {
         versionCode = releaseVersion.getProperty("versionCode").toInt()
         versionName = releaseVersion.getProperty("versionName")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        javaCompileOptions {
+            annotationProcessorOptions { arguments["room.schemaLocation"] = "$projectDir/schemas" }
+        }
         buildConfigField("String", "API_BASE", "\"${System.getenv("TOUCH_API_BASE") ?: "https://chat.worldofmy.uk"}\"")
     }
     signingConfigs {
@@ -36,13 +40,36 @@ android {
             if (signingPath != null) signingConfig = signingConfigs.getByName("release")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
+        create("benchmark") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".benchmark"
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += "release"
+            buildConfigField("String", "API_BASE", "\"http://127.0.0.1:1\"")
+        }
     }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     testOptions { unitTests.isReturnDefaultValues = true }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }
+// Apply after the profile plugin creates its release-derived source set.
+androidComponents.finalizeDsl { dsl ->
+    dsl.sourceSets.getByName("nonMinifiedRelease") {
+        kotlin.directories.add("src/benchmark/java")
+        manifest.srcFile("src/benchmark/AndroidManifest.xml")
+    }
+}
+baselineProfile {
+    mergeIntoMain = true
+    automaticGenerationDuringBuild = false
+    filter {
+        exclude("com.arcxya09.touch.DesignBenchmarkActivity")
+        exclude("com.arcxya09.touch.DesignBenchmarkActivityKt")
+    }
+}
 dependencies {
+    baselineProfile(project(":benchmark"))
     implementation(platform("androidx.compose:compose-bom:2026.09.00"))
     implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.compose.material3:material3")
@@ -59,12 +86,14 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("androidx.core:core-ktx:1.16.0")
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
+    androidTestImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     androidTestImplementation(platform("androidx.compose:compose-bom:2026.09.00"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

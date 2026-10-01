@@ -76,8 +76,9 @@ limiter = RateLimiter()
 
 
 def authenticate(db: Session, raw: str, allow_expired=False) -> tuple[User, MobileSession]:
-    session = db.scalar(select(MobileSession).where(MobileSession.access_hash == digest(raw)))
-    user = db.get(User, session.user_id) if session else None
+    session = db.scalar(select(MobileSession).where(MobileSession.access_hash == digest(raw))
+                        .execution_options(populate_existing=True))
+    user = db.get(User, session.user_id, populate_existing=True) if session else None
     if (not session or not user or not user.active or session.epoch != user.session_epoch
             or session.refresh_expires <= now()):
         raise HTTPException(401, "登录已失效，请重新登录", headers={"X-Auth-Reason": "revoked"})

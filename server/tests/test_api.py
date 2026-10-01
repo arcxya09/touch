@@ -71,6 +71,8 @@ def test_initial_password_required(client):
     response = client.post("/api/v1/auth/password", headers=headers,
                            json={"current_password": "password123!", "new_password": "changed12345!"})
     assert response.status_code == 200
+    assert client.get("/api/v1/conversations", headers=headers).status_code == 401
+    headers["Authorization"] = "Bearer " + response.json()["session"]["access_token"]
     assert client.get("/api/v1/conversations", headers=headers).status_code == 200
 
 

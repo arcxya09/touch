@@ -24,6 +24,7 @@ class ReplyStorageTest {
             db.execSQL("CREATE TABLE items(kind TEXT NOT NULL,id TEXT NOT NULL,json TEXT NOT NULL,PRIMARY KEY(kind,id))")
             db.execSQL("CREATE TABLE outbox(id TEXT NOT NULL PRIMARY KEY,conversationId TEXT NOT NULL,body TEXT NOT NULL,createdAt INTEGER NOT NULL)")
             db.execSQL("INSERT INTO items VALUES('message','m',?)", arrayOf(json))
+            db.execSQL("INSERT INTO items VALUES('draft','c',?)", arrayOf(JSONObject().put("conversation_id", "c").put("created_at", 124).put("text", "recoverable-v1-draft").toString()))
             db.execSQL("INSERT INTO outbox VALUES('p','c','{}',124)")
             db.version = 1
         }
@@ -31,6 +32,8 @@ class ReplyStorageTest {
             try {
                 assertEquals(json, db.cache().page("c", Long.MAX_VALUE, 0).single().json)
                 assertEquals("p", db.cache().pendingItems().single().id)
+                assertEquals(124L, db.cache().get("draft", "c")!!.createdAt)
+                assertEquals("c", db.cache().get("draft", "c")!!.conversationId)
                 assertTrue(db.cache().page("c", Long.MAX_VALUE, 123).isEmpty())
             } finally { db.close() }
         }

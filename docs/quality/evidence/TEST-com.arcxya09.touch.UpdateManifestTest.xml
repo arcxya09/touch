@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.arcxya09.touch.UpdateManifestTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-10-01T09:37:54.588Z" hostname="DESKTOP-3KH10BQ" time="0.229">
+  <properties/>
+  <testcase name="rejectsMalformedAndCrossRepositoryAssets" classname="com.arcxya09.touch.UpdateManifestTest" time="0.169"/>
+  <testcase name="comparesNumericVersionAndCompatibility" classname="com.arcxya09.touch.UpdateManifestTest" time="0.059"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

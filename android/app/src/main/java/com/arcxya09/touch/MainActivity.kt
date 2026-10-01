@@ -3,7 +3,6 @@ package com.arcxya09.touch
 import android.Manifest
 import android.app.AlarmManager
 import android.content.Intent
-import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -63,7 +62,6 @@ class MainActivity : ComponentActivity(), android.hardware.SensorEventListener {
 
     private val model: AppViewModel by viewModels()
     private lateinit var cover: TextView
-    private var exportFile: EncryptedAttachment? = null
     private val imagePicker = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> selection(uri, "image") }
     private val avatarPicker = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> model.pendingAvatar = uri }
     private val documentPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> selection(uri, "file") }
@@ -73,31 +71,19 @@ class MainActivity : ComponentActivity(), android.hardware.SensorEventListener {
         else model.error = "通知权限未开启，消息通知仍保持关闭。可在系统通知设置中开启权限。"
     }
     private val exporter = registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
-        val source = exportFile
-        if (uri != null && source != null) {
-            // The user explicitly authorized this export before entering the picker.
-            Thread {
-                runCatching {
-                    source.checkAccess()
-                    contentResolver.openOutputStream(uri)?.use { output -> source.input().use { it.copyTo(output) } }
-                        ?: error("无法保存文件")
-                }
-                    .onFailure { runOnUiThread { model.error = "文件保存失败" } }
-            }.start()
-        }
-        exportFile = null
+        model.completeExport(uri)
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         model.updater = Updater(this, model.repository.api)
-        if (opensTimer(intent)) model.screen = "timer"
+        if (savedInstanceState == null) routeNotification(intent)
         model.pendingNotificationSettings = intent.getBooleanExtra("notification_settings", false)
         setContent { TouchRoot(model, this) }
         cover = TextView(this).apply {
             text = "Touch番茄钟"; textSize = 28f; gravity = Gravity.CENTER
-            setTextColor(Color.rgb(57, 107, 75)); setBackgroundColor(Color.rgb(247, 245, 239))
+            setTextColor(getColor(R.color.touch_accent)); setBackgroundColor(getColor(R.color.touch_window_background))
         }
         addContentView(cover, android.view.ViewGroup.LayoutParams(-1, -1))
     }
@@ -105,12 +91,16 @@ class MainActivity : ComponentActivity(), android.hardware.SensorEventListener {
         super.onNewIntent(intent)
         setIntent(intent)
         if (intent.getBooleanExtra("notification_settings", false)) model.pendingNotificationSettings = true
-        if (opensTimer(intent)) { model.hide(); model.screen = "timer" }
-        else if (intent.getBooleanExtra("message_alert", false)) model.screen = "home"
+        routeNotification(intent)
     }
-    private fun opensTimer(intent: Intent) = intent.getBooleanExtra("timer", false) ||
-        (intent.action == Intent.ACTION_MAIN && !intent.getBooleanExtra("message_alert", false) &&
-            !intent.getBooleanExtra("notification_settings", false) && (application as TouchApp).alerts.hasDiscreetMessage())
+    private fun routeNotification(intent: Intent) {
+        when {
+            intent.getBooleanExtra("message_alert", false) -> model.openMessageNotification(intent.getStringExtra("conversation_id"))
+            intent.getBooleanExtra("timer", false) -> { model.hide(); model.navigate(Screen.Timer) }
+            intent.action == Intent.ACTION_MAIN && !intent.getBooleanExtra("notification_settings", false) &&
+                (application as TouchApp).alerts.hasDiscreetMessage() -> model.openMessageNotification(null)
+        }
+    }
     override fun onPause() {
         resumed = false; sensors.unregisterListener(this); motionOptions = null
         if (::cover.isInitialized && (model.privacy || model.needsPrivacySetup)) cover.visibility = View.VISIBLE
@@ -186,5 +176,5 @@ class MainActivity : ComponentActivity(), android.hardware.SensorEventListener {
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "选择查看应用"))
         } catch (_: Exception) { model.error = "未找到可打开此文件的应用，可选择保存文件" }
     }
-    fun export(file: EncryptedAttachment, name: String) { exportFile = file; exporter.launch(name) }
+    fun export(file: EncryptedAttachment, name: String) { model.prepareExport(file, name) { exporter.launch(it) } }
 }

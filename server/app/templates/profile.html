@@ -1,15 +1,7 @@
-{% extends "base.html" %}
-{% block content %}
-<header><div><p class="muted small">TOUCH / PROFILE</p><h1>编辑个人资料</h1><p class="muted">@{{user.username}} · 账号名不可修改</p></div><a href="/admin" class="button secondary">返回</a></header>
-<section class="card">
-<form method="post" enctype="multipart/form-data" action="/admin/users/{{user.id}}/profile">
-<input type="hidden" name="csrf" value="{{csrf}}">
-{% if user.avatar_version %}<p><img src="/admin/users/{{user.id}}/avatar?v={{user.avatar_version}}" alt="当前头像" width="96" height="96" style="border-radius:24px"></p>{% endif %}
-<p><label>头像（图片，最多 5 MiB）<input type="file" name="avatar" accept="image/*"></label></p>
-{% if user.avatar_version %}<p><label><input type="checkbox" name="remove_avatar" value="true"> 移除当前头像（选择新图片时以新图片为准）</label></p>{% endif %}
-<p><label>昵称<input name="display_name" value="{{user.display_name}}" required maxlength="64"></label></p>
-<p><label>个人简介<input name="bio" value="{{user.bio}}" maxlength="160" style="width:min(100%,560px)"></label></p>
-<p class="muted small">昵称、头像和简介会显示给其他用户。头像会裁剪为方形并移除图片元数据。</p>
-<button>保存资料</button>
-</form></section>
+{% extends "base.html" %}{% block content %}
+<header><div><p class="eyebrow">Personal details</p><h1>编辑个人资料</h1><p class="muted">@{{user.username}} · 账号名不可修改</p></div><a href="/admin" class="button">返回工作台</a></header>
+<section class="card"><form class="profile-form stack" method="post" enctype="multipart/form-data" action="/admin/users/{{user.id}}/profile"><input type="hidden" name="csrf" value="{{csrf}}">{% if error %}<div class="error" role="alert">{{error}}</div>{% endif %}
+{% if user.avatar_version %}<img class="profile-avatar" src="/admin/users/{{user.id}}/avatar?v={{user.avatar_version}}" alt="当前头像">{% endif %}<label>头像<input type="file" name="avatar" accept="image/*" aria-describedby="avatar-help"><span class="help" id="avatar-help">最多 5 MiB，保存时裁剪为方形并移除图片元数据。</span></label>
+{% if user.avatar_version %}<label class="check"><input type="checkbox" name="remove_avatar" value="true">移除当前头像（选择新图片时优先使用新图片）</label>{% endif %}
+<label>昵称<input name="display_name" value="{{values.display_name if values else user.display_name}}" required maxlength="64" autocomplete="nickname"></label><label>个人简介<textarea name="bio" maxlength="160" rows="3">{{values.bio if values else user.bio}}</textarea><span class="help">最多 160 字。昵称、头像和简介会显示给其他用户。</span></label><div class="actions"><button>保存资料</button><a href="/admin" class="button">取消</a></div></form></section>
 {% endblock %}

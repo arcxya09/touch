@@ -1,0 +1,251 @@
+{
+  "schema_version": 1,
+  "baseline": ".local/quality-screenshots-v2-static1",
+  "candidate": ".local/quality-screenshots-v2-static2",
+  "pixel_threshold": 0,
+  "max_diff_ratio": 0.0,
+  "passed": true,
+  "expected_count": 14,
+  "candidate_count": 14,
+  "results": [
+    {
+      "file": "chat-dark-ready.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "chat-dark-recovery.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "chat-light-ready.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "chat-light-recovery.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "inbox-dark-ready.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "inbox-dark-recovery.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "inbox-light-ready.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "inbox-light-recovery.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "timer-dark-font200-320.png",
+      "passed": true,
+      "baseline_size": [
+        840,
+        1680
+      ],
+      "candidate_size": [
+        840,
+        1680
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 1411200,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "timer-dark-ready.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "timer-dark-recovery.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "timer-light-320.png",
+      "passed": true,
+      "baseline_size": [
+        840,
+        1680
+      ],
+      "candidate_size": [
+        840,
+        1680
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 1411200,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "timer-light-ready.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "timer-light-recovery.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    }
+  ],
+  "metadata_note": "Published copy uses repository-relative paths; pixel counts and results are unchanged."
+}

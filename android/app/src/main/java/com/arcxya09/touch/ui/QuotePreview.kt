@@ -11,11 +11,12 @@ import com.arcxya09.touch.data.*
 import kotlinx.coroutines.CancellationException
 
 @Composable internal fun QuotePreview(ref: ReplyRef, cid: String, vm: AppViewModel, clickable: Boolean = true) {
+    val revision by vm.repository.contentRevision.collectAsState()
     val clear = vm.conversations.firstOrNull { it.id == cid }?.clearSeq ?: 0
     val permitted = ref.createdAt > vm.visibilityFloor && ref.seq > clear
-    var original by remember(ref, cid) { mutableStateOf<ChatMessage?>(null) }
-    var status by remember(ref, cid) { mutableStateOf("加载引用…") }
-    LaunchedEffect(ref, cid, permitted, clear) {
+    var original by remember(ref, cid, revision) { mutableStateOf<ChatMessage?>(null) }
+    var status by remember(ref, cid, revision) { mutableStateOf("加载引用…") }
+    LaunchedEffect(ref, cid, permitted, clear, revision) {
         original = null
         if (!permitted) { status = "原消息不可用"; return@LaunchedEffect }
         try {

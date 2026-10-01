@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.arcxya09.touch.MotionExitTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-10-01T09:37:54.332Z" hostname="DESKTOP-3KH10BQ" time="0.02">
+  <properties/>
+  <testcase name="faceDownAtStartupAndOrdinaryMovementDoNotExit" classname="com.arcxya09.touch.MotionExitTest" time="0.003"/>
+  <testcase name="flipRequiresStableDownwardOrientationAndOnlyFiresOnce" classname="com.arcxya09.touch.MotionExitTest" time="0.014"/>
+  <testcase name="disabledSettingsAndDistantShocksDoNotExit" classname="com.arcxya09.touch.MotionExitTest" time="0.001"/>
+  <testcase name="shakeRequiresThreeSeparatePeaksInWindow" classname="com.arcxya09.touch.MotionExitTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

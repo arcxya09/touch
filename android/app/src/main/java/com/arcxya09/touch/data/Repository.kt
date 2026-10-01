@@ -22,17 +22,22 @@ import java.io.File
 import java.security.MessageDigest
 import java.util.UUID
 
-class Repository(private val context: Context, private val database: () -> TouchDatabase, secure: SecureStore) {
+class Repository(private val context: Context, private val database: () -> TouchDatabase, secure: SecureStore, val api: Api = Api(secure)) {
     val db get() = database()
     private val app get() = context.applicationContext as TouchApp
     val retention get() = app.retention
     private val files by lazy { EncryptedAttachments(context, app.vault) }
     @Volatile private var localOwner: String? = null
     private val accessGeneration = java.util.concurrent.atomic.AtomicLong()
+    val contentRevision = kotlinx.coroutines.flow.MutableStateFlow(0L)
     private val purgeLock = Mutex()
-    val api = Api(secure)
     private val syncLock = Mutex()
     private val cache get() = db.cache()
+    private val visibility = LocalVisibilityStore { cache }
+    private val cleanup = AttachmentCleanup({ cache }, { files.folder })
+    @Volatile var credentialRecoveryRequired = false
+        private set
+    @Volatile private var nextMaintenanceAt = 0L
     val connection = ConnectionHealth { android.os.SystemClock.elapsedRealtime() }
     private val networkManager = context.getSystemService(android.net.ConnectivityManager::class.java)
     private var network: android.net.Network? = null
@@ -55,8 +60,13 @@ class Repository(private val context: Context, private val database: () -> Touch
     suspend fun initialize() = initLock.withLock { withContext(Dispatchers.IO) {
         if (initialized) return@withContext
         purge()
-        files.folder.listFiles()?.filter { it.name.endsWith(".part") }?.forEach { check(it.delete()) }
-        runCatching { api.load() }.onFailure { api.save(null); clearLocal() }
+        files.folder.listFiles()?.filter { it.name.endsWith(".part") }?.forEach { cleanup.enqueue(it.name) }
+        cleanup.drain()
+        try { api.load() } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            api.sealCredentials()
+            credentialRecoveryRequired = true
+        }
         connection.detailed(cache.get("meta", "diagnostics")?.json == "true")
         initialized = true
     } }
@@ -65,51 +75,70 @@ class Repository(private val context: Context, private val database: () -> Touch
         app.alertSettings.disable()
         com.arcxya09.touch.notifications.AlertService.stop(app)
         val owner = cache.get("meta", "owner")?.json
+        check(!credentialRecoveryRequired || owner == null || owner == session.getJSONObject("user").getString("id")) {
+            "请使用原账号登录以恢复本机内容"
+        }
         if (owner != session.getJSONObject("user").getString("id")) clearLocal()
         cache.put(TouchDatabase.Item("meta", "owner", session.getJSONObject("user").getString("id")))
         localOwner = session.getJSONObject("user").getString("id")
         purge()
         api.save(session)
+        credentialRecoveryRequired = false
     } }
     suspend fun clearLocal() = purgeLock.withLock { withContext(Dispatchers.IO) {
         accessGeneration.incrementAndGet()
         localOwner?.let { retention.cutoff(it) }
         localOwner = null
-        db.runInTransaction { cache.clear(); cache.clearPending() }
+        db.runInTransaction { cleanup.enqueueAll(); cache.clear(); cache.clearPending() }
         File(context.cacheDir, "attachments").listFiles()?.filter { it.isFile }?.forEach { it.delete() }
-        files.folder.listFiles()?.filter { it.isFile }?.forEach { check(it.delete()) }
+        cleanup.drain()
+        nextMaintenanceAt = 0L
     } }
     suspend fun visibilityFloor() = withContext(Dispatchers.IO) { cutoff() }
-    private fun cutoff(): Long = localOwner?.let(retention::cutoff) ?: Long.MAX_VALUE
+    suspend fun checkpointRetention() = withContext(Dispatchers.IO) { localOwner?.let { retention.cutoff(it) }; Unit }
+    private fun cutoff(checkpoint: Boolean = false): Long = localOwner?.let {
+        maxOf(if (checkpoint) retention.cutoff(it) else retention.visibilityCutoff(it), visibility.cutoff(it),
+            cache.get("meta", "local-clear-time")?.json?.toLongOrNull() ?: 0L)
+    } ?: Long.MAX_VALUE
     suspend fun enableRetention(enabled: Boolean) = withContext(Dispatchers.IO) {
         retention.setEnabled(enabled, localOwner); purge()
     }
     suspend fun configureRetention(seconds: Long) = withContext(Dispatchers.IO) {
         retention.configure(seconds, localOwner); purge()
     }
+    suspend fun purgeIfDue(): Boolean = if (System.currentTimeMillis() >= nextMaintenanceAt) purge() else false
     suspend fun purge(): Boolean = purgeLock.withLock { withContext(Dispatchers.IO) {
         localOwner = cache.get("meta", "owner")?.json
+        check(localOwner != null || !cache.hasContent()) { "本机账号信息不可读，已保留缓存" }
         retention.seconds // Validate encrypted policy even before login; never reset a corrupt watermark.
-        val floor = cutoff()
+        val floor = cutoff(checkpoint = true)
         var changed = false
-        val removeFiles = mutableSetOf<String>()
-        db.runInTransaction {
-            for (kind in listOf("message", "draft", "attachment")) {
-                do {
+        for (kind in listOf("message", "draft", "attachment")) {
+            do {
+                var count = 0
+                db.runInTransaction {
                     val expired = cache.expired(kind, floor)
+                    count = expired.size
                     expired.forEach {
-                        if (it.attachmentId.isNotBlank()) removeFiles.add(it.attachmentId)
-                        if (kind == "attachment") removeFiles.add(it.id)
+                        if (it.attachmentId.isNotBlank()) { cleanup.enqueue(it.attachmentId); cache.remove("attachment", it.attachmentId) }
+                        if (kind == "attachment") cleanup.enqueue(it.id)
                         cache.remove(kind, it.id); changed = true
                     }
-                } while (expired.size == 500)
-            }
-            cache.pendingItems().forEach {
-                if (it.createdAt <= floor) {
-                    JSONObject(it.body).optString("attachment_id").takeIf(String::isNotBlank)?.let(removeFiles::add)
+                }
+            } while (count == 500)
+        }
+        do {
+            var count = 0
+            db.runInTransaction {
+                val expired = cache.expiredPending(floor)
+                count = expired.size
+                expired.forEach {
+                    JSONObject(it.body).optString("attachment_id").takeIf(String::isNotBlank)?.let { id -> cleanup.enqueue(id); cache.remove("attachment", id) }
                     cache.removePending(it.id); changed = true
                 }
             }
+        } while (count == 100)
+        db.runInTransaction {
             cache.items("conversation").forEach {
                 val json = JSONObject(it.json)
                 val last = json.optJSONObject("last_message")
@@ -118,22 +147,34 @@ class Repository(private val context: Context, private val database: () -> Touch
                     cache.put(TouchDatabase.Item("conversation", it.id, json.toString())); changed = true
                 }
             }
-            removeFiles.forEach { cache.remove("attachment", it) }
         }
-        removeFiles.forEach { id ->
-            val file = File(files.folder, id)
-            if (file.exists()) check(file.delete()) { "无法清理过期附件" }
-        }
+        val drained = cleanup.drain()
         migratePlainAttachments()
+        val now = System.currentTimeMillis()
+        val earliest = cache.earliestContentTime()
+        nextMaintenanceAt = if (!drained) now + 5_000L else if (retention.enabled && earliest != null)
+            minOf(now + 60_000L, ((earliest + retention.seconds) * 1000L).coerceAtLeast(now + 1000L))
+        else now + 60_000L
         changed
     } }
     private fun attachment(message: ChatMessage): EncryptedAttachment {
         val item = message.file ?: error("附件不存在")
         val owner = localOwner ?: error("请先登录")
         val generation = accessGeneration.get()
+        check(visible(message.conversationId, ReplyRef(message.id, message.seq, message.createdAt)) && !cache.fileDeletionPending(item.id)) { "附件已删除或正在清理" }
         return files.file(item, owner, message.createdAt) {
-            accessGeneration.get() == generation && localOwner == owner && message.createdAt > retention.cutoff(owner)
+            // Access checks can run in ContentProvider or UI callbacks: never query Room here.
+            accessGeneration.get() == generation && localOwner == owner && api.user?.id == owner &&
+                message.createdAt > retention.visibilityCutoff(owner)
         }
+    }
+    suspend fun attachmentForExport(owner: String, cid: String, messageId: String): EncryptedAttachment = withContext(Dispatchers.IO) {
+        check(api.user?.id == owner && localOwner == owner) { "账号已退出，请重新打开附件" }
+        purgeIfDue()
+        val message = cache.get("message", messageId)?.let { ChatMessage.parse(JSONObject(it.json)) }
+            ?: error("附件已删除或不可用")
+        check(message.conversationId == cid && message.kind != "recalled" && visible(cid, ReplyRef(message.id, message.seq, message.createdAt))) { "附件已删除或不可用" }
+        attachment(message).also { check(it.valid()) { "附件缓存已失效，请重新打开附件" } }
     }
     private fun migratePlainAttachments() {
         // Old versions cached plaintext. Convert retained files before any UI is exposed.
@@ -160,11 +201,11 @@ class Repository(private val context: Context, private val database: () -> Touch
         if (remote) runCatching { api.json("/api/v1/auth/logout", "POST") }
         stop()
         api.save(null)
-        clearLocal()
+        if (remote) clearLocal() else api.sealCredentials()
     }
-    suspend fun updatePassword(old: String, new: String) {
+    suspend fun updatePassword(old: String, new: String) = syncLock.withLock {
         val user = api.json("/api/v1/auth/password", "POST", JSONObject().put("current_password", old).put("new_password", new))
-        api.updateUser(user)
+        user.optJSONObject("session")?.let { api.save(it); recheck() } ?: api.updateUser(user)
     }
     private suspend fun acceptUser(user: JSONObject) {
         api.updateUser(user)
@@ -207,13 +248,13 @@ class Repository(private val context: Context, private val database: () -> Touch
     suspend fun verifyPassword(password: String) { api.json("/api/v1/auth/verify-password", "POST", JSONObject().put("password", password)) }
     suspend fun contacts(): List<ContactItem> = withContext(Dispatchers.IO) { cache.items("contact").map { ContactItem.parse(JSONObject(it.json)) } }
     suspend fun conversations(): List<Conversation> = withContext(Dispatchers.IO) {
-        cache.items("conversation").map { Conversation.parse(JSONObject(it.json)) }.sortedByDescending { it.last?.createdAt ?: 0 }
+        cache.items("conversation").map { Conversation.parse(sanitizeConversation(JSONObject(it.json))) }.sortedByDescending { it.last?.createdAt ?: 0 }
     }
     suspend fun messages(cid: String, before: Long = Long.MAX_VALUE, first: Long? = null, last: Long? = null): List<ChatMessage> = withContext(Dispatchers.IO) {
         val floor = cutoff()
-        val rows = if (first != null && last != null) cache.window(cid, first, last, floor)
-            else cache.page(cid, before, floor).reversed()
-        val messages = rows.map { ChatMessage.parse(JSONObject(it.json)) }
+        val rows = if (first != null && last != null) cache.visibleWindow(cid, first, last, floor, api.user?.isAdmin == true)
+            else cache.visiblePage(cid, before, floor, api.user?.isAdmin == true).reversed()
+        val messages = rows.map { ChatMessage.parse(JSONObject(it.json)) }.filter { visible(cid, ReplyRef(it.id, it.seq, it.createdAt)) }
         val pending = if (before != Long.MAX_VALUE || first != null) emptyList() else cache.pendingFor(cid, floor).map {
             val json = JSONObject(it.body)
             ChatMessage(it.id, cid, api.user?.id.orEmpty(), it.id, Long.MAX_VALUE, json.getString("kind"), json.optString("text"), it.createdAt,
@@ -225,29 +266,31 @@ class Repository(private val context: Context, private val database: () -> Touch
     private fun clearSeq(cid: String): Long = maxOf(cache.get("meta", "clear:$cid")?.json?.toLongOrNull() ?: 0L,
         cache.get("conversation", cid)?.let { JSONObject(it.json).optLong("clear_seq") } ?: 0L)
     fun visible(cid: String, ref: ReplyRef): Boolean = ref.createdAt > cutoff() &&
-        ref.seq > clearSeq(cid)
+        ref.seq > clearSeq(cid) && cache.get("hidden-message", ref.id) == null &&
+        localOwner?.let { !visibility.hidden(it, ref.id) } == true
     private val quoteLocks = Array(16) { Mutex() }
     suspend fun original(cid: String, ref: ReplyRef): ChatMessage? = quoteLocks[(ref.id.hashCode() and Int.MAX_VALUE) % 16].withLock {
         withContext(Dispatchers.IO) {
-            if (!visible(cid, ref)) return@withContext null
+            if (!visible(cid, ref) || cache.get("recalled-message", ref.id) != null) return@withContext null
             val generation = accessGeneration.get()
             val cached = cache.get("message", ref.id)?.let { ChatMessage.parse(JSONObject(it.json)) }
-            if (cached != null && cached.conversationId == cid && cached.createdAt > cutoff()) return@withContext cached
+            if (cached != null && cached.conversationId == cid && cached.createdAt > cutoff()) return@withContext cached.takeUnless { it.kind == "recalled" }
             val json = try { api.json("/api/v1/conversations/$cid/messages/${ref.id}?after_time=${cutoff()}") }
                 catch (e: ApiException) { if (e.status == 404) return@withContext null else throw e }
             if (generation != accessGeneration.get() || !visible(cid, ref)) return@withContext null
             val result = ChatMessage.parse(json)
             check(result.conversationId == cid && result.id == ref.id)
-            storeMessage(json); result
+            storeMessage(json)
+            result.takeUnless { it.kind == "recalled" || generation != accessGeneration.get() || !visible(cid, ref) }
         }
     }
     suspend fun locate(cid: String, ref: ReplyRef): List<ChatMessage> = syncLock.withLock { withContext(Dispatchers.IO) {
-        check(visible(cid, ref)) { "原消息不可用" }
+        check(visible(cid, ref) && cache.get("recalled-message", ref.id) == null) { "原消息不可用" }
         val result = api.json("/api/v1/conversations/$cid/messages/${ref.id}/context?after_time=${cutoff()}").getJSONArray("messages")
         check(result.length() <= 50)
         db.runInTransaction { for (i in 0 until result.length()) storeMessage(result.getJSONObject(i)) }
-        check(visible(cid, ref)) { "原消息不可用" }
-        (0 until result.length()).map { ChatMessage.parse(result.getJSONObject(it)) }.filter { it.createdAt > cutoff() }
+        check(visible(cid, ref) && cache.get("recalled-message", ref.id) == null) { "原消息不可用" }
+        (0 until result.length()).map { ChatMessage.parse(result.getJSONObject(it)) }.filter { visible(cid, ReplyRef(it.id, it.seq, it.createdAt)) && ((it.kind == "recalled" && api.user?.isAdmin == true) || (it.kind != "recalled" && cache.get("recalled-message", it.id) == null)) }
     } }
     suspend fun draftEnabled(): Boolean = withContext(Dispatchers.IO) { cache.get("meta", "drafts")?.json == "true" }
     suspend fun setDraftEnabled(value: Boolean) = purgeLock.withLock { withContext(Dispatchers.IO) { db.runInTransaction {
@@ -262,12 +305,85 @@ class Repository(private val context: Context, private val database: () -> Touch
             if (text.isEmpty() && ref == null) cache.remove("draft", cid)
             else cache.put(TouchDatabase.Item("draft", cid, JSONObject().put("text", text).put("reply_to", ref?.json())
                 .put("created_at", editedAt).put("conversation_id", cid).toString()))
+            nextMaintenanceAt = 0L
         }
     }
     }
     private fun storeMessage(json: JSONObject) {
-        if (json.getLong("created_at") > cutoff() && json.getLong("seq") > clearSeq(json.getString("conversation_id"))) cache.put(TouchDatabase.Item("message", json.getString("id"), json.toString()))
+        nextMaintenanceAt = 0L
+        if (json.optString("kind") != "recalled" && cache.get("recalled-message", json.getString("id")) != null) {
+            cache.removePending(json.getString("client_id")); return
+        }
+        if (json.optString("kind") == "recalled") {
+            cache.put(TouchDatabase.Item("recalled-message", json.getString("id"), "true"))
+            accessGeneration.incrementAndGet()
+            cache.get("message", json.getString("id"))?.let { removeMessageContent(it.id) }
+            contentRevision.value++
+            app.alerts.clearMessages()
+        }
+        if (visible(json.getString("conversation_id"), ReplyRef(json.getString("id"), json.getLong("seq"), json.getLong("created_at"))))
+            cache.put(TouchDatabase.Item("message", json.getString("id"), json.toString()))
         cache.removePending(json.getString("client_id"))
+    }
+    private fun sanitizeConversation(json: JSONObject): JSONObject {
+        val last = json.optJSONObject("last_message") ?: return json
+        if (!visible(json.getString("id"), ReplyRef(last.getString("id"), last.getLong("seq"), last.getLong("created_at"))) ||
+            (last.optString("kind") == "recalled" && api.user?.isAdmin != true)) {
+            val previous = cache.visiblePage(json.getString("id"), Long.MAX_VALUE, cutoff(), api.user?.isAdmin == true)
+                .firstOrNull { visible(it.conversationId, ReplyRef(it.id, it.seq, it.createdAt)) }
+            json.put("last_message", previous?.let { JSONObject(it.json) } ?: JSONObject.NULL).put("unread", 0)
+        }
+        return json
+    }
+    private fun removeMessageContent(id: String) {
+        accessGeneration.incrementAndGet()
+        cache.get("message", id)?.attachmentId?.takeIf(String::isNotBlank)?.let {
+            cache.remove("attachment", it)
+            cleanup.enqueue(it)
+        }
+        cache.remove("message", id)
+    }
+    suspend fun deleteLocalMessage(message: ChatMessage) = syncLock.withLock { withContext(Dispatchers.IO) {
+        db.runInTransaction {
+            localOwner?.let { visibility.hide(it, message.id) } ?: error("请先登录")
+            cache.put(TouchDatabase.Item("hidden-message", message.id, "true"))
+            removeMessageContent(message.id)
+            cache.items("conversation").forEach {
+                cache.put(TouchDatabase.Item("conversation", it.id, sanitizeConversation(JSONObject(it.json)).toString()))
+            }
+        }
+        cleanup.drain()
+        contentRevision.value++
+        app.alerts.clearMessages()
+    } }
+    suspend fun clearLocalHistory() = syncLock.withLock { purgeLock.withLock { withContext(Dispatchers.IO) {
+        accessGeneration.incrementAndGet()
+        db.runInTransaction {
+            // Keep a local watermark so history and future sync cannot restore cleared content.
+            val floor = maxOf(cutoff(), System.currentTimeMillis() / 1000 - 1)
+            val owner = localOwner ?: error("请先登录")
+            visibility.advance(owner, floor)
+            cache.put(TouchDatabase.Item("meta", "local-clear-time", floor.toString()))
+            // One indexed SQL statement covers the current second without dropping future messages.
+            cache.hideRecent(owner, floor)
+            cache.removeKind("message")
+            cleanup.enqueueAll()
+            listOf("attachment", "draft").forEach(cache::removeKind)
+            cache.clearPending()
+            cache.items("conversation").forEach {
+                val json = JSONObject(it.json).put("last_message", JSONObject.NULL).put("unread", 0)
+                cache.put(TouchDatabase.Item("conversation", it.id, json.toString()))
+            }
+        }
+        cleanup.drain()
+        nextMaintenanceAt = 0L
+        contentRevision.value++
+        app.alerts.clearMessages()
+    } } }
+    suspend fun recallMessage(message: ChatMessage) {
+        check(conversations().firstOrNull { it.id == message.conversationId }?.canRecall == true) { "双方更新 Touch 后可使用撤回" }
+        api.json("/api/v1/conversations/${message.conversationId}/messages/${message.id}/recall", "POST", JSONObject())
+        sync()
     }
     private fun clearMessages(cid: String, through: Long) {
         if (through > (cache.get("meta", "clear:$cid")?.json?.toLongOrNull() ?: 0L)) {
@@ -277,7 +393,7 @@ class Repository(private val context: Context, private val database: () -> Touch
         cache.cleared(cid, through).forEach {
             if (it.attachmentId.isNotBlank()) {
                 cache.remove("attachment", it.attachmentId)
-                File(files.folder, it.attachmentId).delete()
+                cleanup.enqueue(it.attachmentId)
             }
             cache.remove("message", it.id)
         }
@@ -287,7 +403,7 @@ class Repository(private val context: Context, private val database: () -> Touch
         accessGeneration.incrementAndGet()
         clearMessages(cid, through)
         cache.pendingItems().filter { discardPending && it.conversationId == cid }.forEach {
-            JSONObject(it.body).optString("attachment_id").takeIf(String::isNotBlank)?.let { id -> cache.remove("attachment", id) }
+            JSONObject(it.body).optString("attachment_id").takeIf(String::isNotBlank)?.let { id -> cleanup.enqueue(id); cache.remove("attachment", id) }
             cache.removePending(it.id)
         }
         cache.remove("draft", cid)
@@ -334,7 +450,7 @@ class Repository(private val context: Context, private val database: () -> Touch
                 item.optJSONObject("last_message")?.let { last ->
                     if (last.getLong("created_at") <= cutoff()) item.put("last_message", JSONObject.NULL).put("unread", 0)
                 }
-                cache.put(TouchDatabase.Item("conversation", item.getString("id"), item.toString()))
+                cache.put(TouchDatabase.Item("conversation", item.getString("id"), sanitizeConversation(item).toString()))
                 clearMessages(item.getString("id"), item.getLong("clear_seq"))
             }
             for (i in 0 until contacts.length()) {
@@ -345,7 +461,7 @@ class Repository(private val context: Context, private val database: () -> Touch
         purge()
         val eligible = incoming.filter { message ->
             val conversation = cache.get("conversation", message.conversationId)?.json?.let(::JSONObject)
-            cache.get("message", message.id) != null && conversation != null &&
+            message.kind != "recalled" && cache.get("message", message.id)?.let { JSONObject(it.json).optString("kind") != "recalled" } == true && conversation != null &&
                 message.seq > conversation.optLong("read_seq") && message.seq > conversation.optLong("clear_seq")
         }
         if (eligible.isNotEmpty()) onIncoming?.invoke(eligible)
@@ -371,8 +487,15 @@ class Repository(private val context: Context, private val database: () -> Touch
         if (reply != null) body.put("reply_to_id", reply.id).put("reply_to", reply.json())
         db.runInTransaction {
             cache.pending(TouchDatabase.Outbox(id, cid, body.toString(), System.currentTimeMillis() / 1000))
-            cache.remove("draft", cid)
+            // Attachments do not submit the composer's text. A queued text also must not
+            // erase a newer draft written while its request was being prepared.
+            if (attachment == null) cache.get("draft", cid)?.let { stored ->
+                val draft = JSONObject(stored.json)
+                val storedReply = draft.optJSONObject("reply_to")?.let(ReplyRef::parse)
+                if (draft.optString("text") == text && storedReply == reply) cache.remove("draft", cid)
+            }
         }
+        nextMaintenanceAt = 0L
         queued()
         retry(id)
         id
@@ -440,6 +563,7 @@ class Repository(private val context: Context, private val database: () -> Touch
         val item = FileItem.parse(result)
         result.put("local_created_at", System.currentTimeMillis() / 1000)
         cache.put(TouchDatabase.Item("attachment", item.id, result.toString()))
+        nextMaintenanceAt = 0L
         item
     }
     private val downloadLocks = Array(16) { Mutex() }
@@ -449,6 +573,8 @@ class Repository(private val context: Context, private val database: () -> Touch
     }
     private suspend fun downloadLocked(message: ChatMessage, onProgress: (Float) -> Unit): EncryptedAttachment = withContext(Dispatchers.IO) {
         purge()
+        check(visible(message.conversationId, ReplyRef(message.id, message.seq, message.createdAt))) { "消息已删除或超过本机保留时间" }
+        check(cache.get("recalled-message", message.id) == null && cache.get("message", message.id)?.let { JSONObject(it.json).optString("kind") != "recalled" } != false) { "消息已撤回" }
         val item = message.file ?: error("附件不存在")
         val target = attachment(message)
         target.checkAccess()

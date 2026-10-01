@@ -1,0 +1,9 @@
+**
+!server/
+!server/**
+!version.properties
+server/data/
+server/.pytest_cache/
+server/**/__pycache__/
+server/**/*.pyc
+server/.env

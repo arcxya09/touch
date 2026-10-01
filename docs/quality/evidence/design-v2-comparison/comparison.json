@@ -1,0 +1,253 @@
+{
+  "schema_version": 1,
+  "baseline": "docs/quality/screenshots",
+  "candidate": ".local/quality-screenshots-v2",
+  "pixel_threshold": 0,
+  "max_diff_ratio": 0.0,
+  "passed": false,
+  "expected_count": 14,
+  "candidate_count": 14,
+  "results": [
+    {
+      "file": "chat-dark-ready.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "chat-dark-recovery.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "chat-light-ready.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "chat-light-recovery.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "inbox-dark-ready.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "inbox-dark-recovery.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "inbox-light-ready.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "inbox-light-recovery.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "timer-dark-font200-320.png",
+      "passed": false,
+      "baseline_size": [
+        840,
+        1680
+      ],
+      "candidate_size": [
+        840,
+        1680
+      ],
+      "status": "different",
+      "changed_pixels": 56301,
+      "total_pixels": 1411200,
+      "diff_ratio": 0.03989583333333333,
+      "max_channel_difference": 24,
+      "diff_image": "diff/timer-dark-font200-320.png"
+    },
+    {
+      "file": "timer-dark-ready.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "timer-dark-recovery.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "timer-light-320.png",
+      "passed": false,
+      "baseline_size": [
+        840,
+        1680
+      ],
+      "candidate_size": [
+        840,
+        1680
+      ],
+      "status": "different",
+      "changed_pixels": 38281,
+      "total_pixels": 1411200,
+      "diff_ratio": 0.0271265589569161,
+      "max_channel_difference": 1,
+      "diff_image": "diff/timer-light-320.png"
+    },
+    {
+      "file": "timer-light-ready.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "timer-light-recovery.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    }
+  ],
+  "metadata_note": "Published copy uses repository-relative paths; pixel counts and results are unchanged."
+}

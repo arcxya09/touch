@@ -1,0 +1,229 @@
+INSTRUMENTATION_STATUS: class=com.arcxya09.touch.LiveChatInstrumentedTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=8
+INSTRUMENTATION_STATUS: stream=
+com.arcxya09.touch.LiveChatInstrumentedTest:
+INSTRUMENTATION_STATUS: test=chatAndAttachmentPreviewsOverProductionTls
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.arcxya09.touch.LiveChatInstrumentedTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=8
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=chatAndAttachmentPreviewsOverProductionTls
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_STATUS: class=com.arcxya09.touch.ProfileInstrumentedTest
+INSTRUMENTATION_STATUS: current=2
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=8
+INSTRUMENTATION_STATUS: stream=
+com.arcxya09.touch.ProfileInstrumentedTest:
+INSTRUMENTATION_STATUS: test=profilesRetentionAndReadIndicatorRespectRole
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.arcxya09.touch.ProfileInstrumentedTest
+INSTRUMENTATION_STATUS: current=2
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=8
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=profilesRetentionAndReadIndicatorRespectRole
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_STATUS: class=com.arcxya09.touch.SafetyPreviewTest
+INSTRUMENTATION_STATUS: current=3
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=8
+INSTRUMENTATION_STATUS: stream=
+com.arcxya09.touch.SafetyPreviewTest:
+INSTRUMENTATION_STATUS: test=motionExitRemovesTaskAndReopensPrivacyLocked
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.arcxya09.touch.SafetyPreviewTest
+INSTRUMENTATION_STATUS: current=3
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=8
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=motionExitRemovesTaskAndReopensPrivacyLocked
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_STATUS: class=com.arcxya09.touch.SafetyPreviewTest
+INSTRUMENTATION_STATUS: current=4
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=8
+INSTRUMENTATION_STATUS: stream=
+INSTRUMENTATION_STATUS: test=encryptedImageThumbnailAndRecentTaskToggle
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.arcxya09.touch.SafetyPreviewTest
+INSTRUMENTATION_STATUS: current=4
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=8
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=encryptedImageThumbnailAndRecentTaskToggle
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_STATUS: class=com.arcxya09.touch.BrowserReturnTest
+INSTRUMENTATION_STATUS: current=5
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=8
+INSTRUMENTATION_STATUS: stream=
+com.arcxya09.touch.BrowserReturnTest:
+INSTRUMENTATION_STATUS: test=webLinkLeavesAppAndReturnRequiresUnlock
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.arcxya09.touch.BrowserReturnTest
+INSTRUMENTATION_STATUS: current=5
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=8
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=webLinkLeavesAppAndReturnRequiresUnlock
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_STATUS: class=com.arcxya09.touch.AlertInstrumentedTest
+INSTRUMENTATION_STATUS: current=6
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=8
+INSTRUMENTATION_STATUS: stream=
+com.arcxya09.touch.AlertInstrumentedTest:
+INSTRUMENTATION_STATUS: test=encryptedOptInIsAccountBoundAndAlwaysResetsToDiscreet
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.arcxya09.touch.AlertInstrumentedTest
+INSTRUMENTATION_STATUS: current=6
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=8
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=encryptedOptInIsAccountBoundAndAlwaysResetsToDiscreet
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_STATUS: class=com.arcxya09.touch.AlertInstrumentedTest
+INSTRUMENTATION_STATUS: current=7
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=8
+INSTRUMENTATION_STATUS: stream=
+INSTRUMENTATION_STATUS: test=backgroundReceivePrivacyPauseAndRevocation
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.arcxya09.touch.AlertInstrumentedTest
+INSTRUMENTATION_STATUS: current=7
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=8
+INSTRUMENTATION_STATUS: stack=java.lang.AssertionError
+	at org.junit.Assert.fail(Assert.java:87)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at org.junit.Assert.assertTrue(Assert.java:53)
+	at com.arcxya09.touch.AlertInstrumentedTest$backgroundReceivePrivacyPauseAndRevocation$1.invokeSuspend(AlertInstrumentedTest.kt:146)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:263)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:94)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:70)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source:1)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:48)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source:1)
+	at com.arcxya09.touch.AlertInstrumentedTest.backgroundReceivePrivacyPauseAndRevocation(AlertInstrumentedTest.kt:54)
+
+INSTRUMENTATION_STATUS: stream=
+Error in backgroundReceivePrivacyPauseAndRevocation(com.arcxya09.touch.AlertInstrumentedTest):
+java.lang.AssertionError
+	at org.junit.Assert.fail(Assert.java:87)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at org.junit.Assert.assertTrue(Assert.java:53)
+	at com.arcxya09.touch.AlertInstrumentedTest$backgroundReceivePrivacyPauseAndRevocation$1.invokeSuspend(AlertInstrumentedTest.kt:146)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:263)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:94)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:70)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source:1)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:48)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source:1)
+	at com.arcxya09.touch.AlertInstrumentedTest.backgroundReceivePrivacyPauseAndRevocation(AlertInstrumentedTest.kt:54)
+
+INSTRUMENTATION_STATUS: test=backgroundReceivePrivacyPauseAndRevocation
+INSTRUMENTATION_STATUS_CODE: -2
+INSTRUMENTATION_STATUS: class=com.arcxya09.touch.NotificationNavigationTest
+INSTRUMENTATION_STATUS: current=8
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=8
+INSTRUMENTATION_STATUS: stream=
+com.arcxya09.touch.NotificationNavigationTest:
+INSTRUMENTATION_STATUS: test=coldAndWarmMessageIntentsRespectPrivacyAndOpenTheConversation
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.arcxya09.touch.NotificationNavigationTest
+INSTRUMENTATION_STATUS: current=8
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=8
+INSTRUMENTATION_STATUS: stack=java.lang.AssertionError: Failed to perform checkIsDisplayed check: Expected at most 1 node but found 2 nodes that satisfy (Text + InputText + EditableText contains '文件' (ignoreCase: false))
+	at androidx.compose.ui.test.AndroidAssertions_androidKt.checkIsDisplayed(AndroidAssertions.android.kt:35)
+	at androidx.compose.ui.test.AssertionsKt.isDisplayed(Assertions.kt:380)
+	at androidx.compose.ui.test.AssertionsKt.assertIsDisplayed(Assertions.kt:33)
+	at com.arcxya09.touch.NotificationNavigationTest$coldAndWarmMessageIntentsRespectPrivacyAndOpenTheConversation$1.invokeSuspend(NotificationNavigationTest.kt:43)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+	at kotlinx.coroutines.UndispatchedCoroutine.afterResume(CoroutineContext.kt:266)
+	at kotlinx.coroutines.AbstractCoroutine.resumeWith(AbstractCoroutine.kt:101)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:46)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:263)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:94)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:70)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source:1)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:48)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source:1)
+	at com.arcxya09.touch.NotificationNavigationTest.coldAndWarmMessageIntentsRespectPrivacyAndOpenTheConversation(NotificationNavigationTest.kt:21)
+
+INSTRUMENTATION_STATUS: stream=
+Error in coldAndWarmMessageIntentsRespectPrivacyAndOpenTheConversation(com.arcxya09.touch.NotificationNavigationTest):
+java.lang.AssertionError: Failed to perform checkIsDisplayed check: Expected at most 1 node but found 2 nodes that satisfy (Text + InputText + EditableText contains '文件' (ignoreCase: false))
+	at androidx.compose.ui.test.AndroidAssertions_androidKt.checkIsDisplayed(AndroidAssertions.android.kt:35)
+	at androidx.compose.ui.test.AssertionsKt.isDisplayed(Assertions.kt:380)
+	at androidx.compose.ui.test.AssertionsKt.assertIsDisplayed(Assertions.kt:33)
+	at com.arcxya09.touch.NotificationNavigationTest$coldAndWarmMessageIntentsRespectPrivacyAndOpenTheConversation$1.invokeSuspend(NotificationNavigationTest.kt:43)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+	at kotlinx.coroutines.UndispatchedCoroutine.afterResume(CoroutineContext.kt:266)
+	at kotlinx.coroutines.AbstractCoroutine.resumeWith(AbstractCoroutine.kt:101)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:46)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:263)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:94)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:70)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source:1)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:48)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source:1)
+	at com.arcxya09.touch.NotificationNavigationTest.coldAndWarmMessageIntentsRespectPrivacyAndOpenTheConversation(NotificationNavigationTest.kt:21)
+
+INSTRUMENTATION_STATUS: test=coldAndWarmMessageIntentsRespectPrivacyAndOpenTheConversation
+INSTRUMENTATION_STATUS_CODE: -2
+INSTRUMENTATION_RESULT: stream=
+
+Time: 77.769
+There were 2 failures:
+1) backgroundReceivePrivacyPauseAndRevocation(com.arcxya09.touch.AlertInstrumentedTest)
+java.lang.AssertionError
+	at org.junit.Assert.fail(Assert.java:87)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at org.junit.Assert.assertTrue(Assert.java:53)
+	at com.arcxya09.touch.AlertInstrumentedTest$backgroundReceivePrivacyPauseAndRevocation$1.invokeSuspend(AlertInstrumentedTest.kt:146)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:263)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:94)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:70)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source:1)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:48)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source:1)
+	at com.arcxya09.touch.AlertInstrumentedTest.backgroundReceivePrivacyPauseAndRevocation(AlertInstrumentedTest.kt:54)
+2) coldAndWarmMessageIntentsRespectPrivacyAndOpenTheConversation(com.arcxya09.touch.NotificationNavigationTest)
+java.lang.AssertionError: Failed to perform checkIsDisplayed check: Expected at most 1 node but found 2 nodes that satisfy (Text + InputText + EditableText contains '文件' (ignoreCase: false))
+	at androidx.compose.ui.test.AndroidAssertions_androidKt.checkIsDisplayed(AndroidAssertions.android.kt:35)
+	at androidx.compose.ui.test.AssertionsKt.isDisplayed(Assertions.kt:380)
+	at androidx.compose.ui.test.AssertionsKt.assertIsDisplayed(Assertions.kt:33)
+	at com.arcxya09.touch.NotificationNavigationTest$coldAndWarmMessageIntentsRespectPrivacyAndOpenTheConversation$1.invokeSuspend(NotificationNavigationTest.kt:43)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+	at kotlinx.coroutines.UndispatchedCoroutine.afterResume(CoroutineContext.kt:266)
+	at kotlinx.coroutines.AbstractCoroutine.resumeWith(AbstractCoroutine.kt:101)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:46)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:263)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:94)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:70)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source:1)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:48)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source:1)
+	at com.arcxya09.touch.NotificationNavigationTest.coldAndWarmMessageIntentsRespectPrivacyAndOpenTheConversation(NotificationNavigationTest.kt:21)
+
+FAILURES!!!
+Tests run: 8,  Failures: 2
+
+
+INSTRUMENTATION_CODE: -1

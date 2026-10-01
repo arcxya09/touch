@@ -5,6 +5,7 @@ from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from .models import Attachment, Contact, Conversation, Message, SyncEvent, User, now
+from .capabilities import RECALL, can_recall, message_for_client
 
 
 def pair(a: str, b: str) -> str:
@@ -17,6 +18,7 @@ def user_json(user: User, private=False):
             "must_change_password": user.must_change_password, "is_admin": user.is_admin}
     if private:
         result["read_receipts_enabled"] = bool(user.is_admin and user.read_receipts_enabled)
+        result["capabilities"] = [RECALL]
     return result
 
 
@@ -59,31 +61,34 @@ def visible_after(conversation: Conversation, user_id: str):
     return conversation.a_clear if user_id == conversation.a else conversation.b_clear
 
 
-def conversation_json(db: Session, conversation: Conversation, user_id: str, after_time: int = 0):
+def conversation_json(db: Session, conversation: Conversation, user_id: str, after_time: int = 0, declared=False):
     clear = visible_after(conversation, user_id)
     read = conversation.a_read if user_id == conversation.a else conversation.b_read
     peer_id = conversation.b if user_id == conversation.a else conversation.a
     peer = db.get(User, peer_id)
     contact = db.get(Contact, conversation.pair_key)
-    last = db.scalar(select(Message).where(Message.conversation_id == conversation.id, Message.seq > clear,
-                                          Message.created_at > after_time)
-                     .order_by(Message.seq.desc()).limit(1))
+    viewer = db.get(User, user_id)
+    last_query = select(Message).where(Message.conversation_id == conversation.id, Message.seq > clear,
+                                       Message.created_at > after_time)
+    if not viewer.is_admin:
+        last_query = last_query.where(Message.kind != "recalled")
+    last = db.scalar(last_query.order_by(Message.seq.desc()).limit(1))
     unread = db.scalar(select(func.count()).select_from(Message).where(
         Message.conversation_id == conversation.id, Message.seq > max(read, clear), Message.sender_id != user_id,
-        Message.created_at > after_time))
+        Message.created_at > after_time, Message.kind != "recalled"))
     result = {"id": conversation.id, "peer": user_json(peer), "unread": unread,
             "clear_seq": clear, "read_seq": read,
             "can_send": bool(contact and contact.state == "accepted" and peer.active),
-            "last_message": message_json(db, last) if last else None}
-    viewer = db.get(User, user_id)
+            "last_message": message_for_client(message_json(db, last), declared) if last else None,
+            "can_recall": can_recall(db, conversation, declared)}
     if viewer.is_admin and viewer.read_receipts_enabled:
         result["peer_read_seq"] = conversation.b_read if user_id == conversation.a else conversation.a_read
     return result
 
 
-def all_conversations(db: Session, user_id: str, after_time: int = 0):
+def all_conversations(db: Session, user_id: str, after_time: int = 0, declared=False):
     rows = db.scalars(select(Conversation).where(or_(Conversation.a == user_id, Conversation.b == user_id)))
-    result = [conversation_json(db, row, user_id, after_time) for row in rows
+    result = [conversation_json(db, row, user_id, after_time, declared) for row in rows
               if not (row.a_hidden if row.a == user_id else row.b_hidden)]
     return sorted(result, key=lambda c: (c["last_message"] or {}).get("created_at", 0), reverse=True)
 

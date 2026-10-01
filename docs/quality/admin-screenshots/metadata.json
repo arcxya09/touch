@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "kind": "local-admin-browser-smoke",
+  "approvedComparisonBaseline": false,
+  "productionAccountsUsed": false,
+  "fixtureBase": "http://127.0.0.1:18147",
+  "browser": "Local Google Chrome controlled by Python Playwright",
+  "fullPage": true,
+  "sourceState": "Uncommitted working tree at capture time; later form alignment adjustment is not represented",
+  "checks": [
+    "desktop and 390px mobile body has no horizontal overflow",
+    "invalid login retains username without retaining password",
+    "duplicate account form retains non-secret inputs"
+  ],
+  "limitations": [
+    "Not a formal screenshot baseline approval",
+    "Full-page height is content height, not viewport height",
+    "Viewport heights were not retained in capture metadata",
+    "Browser build and source tree hash were not recorded"
+  ],
+  "screenshots": [
+    {
+      "file": "admin-quality-login.png",
+      "sha256": "042abea3b2eaf6c9d371cc437ee78dcc400828f15ea15d944417f8a5c0acb056",
+      "imageSize": [
+        1280,
+        900
+      ],
+      "viewportWidthCssPx": 1280,
+      "viewportHeightCssPx": null,
+      "capturedAtUtc": "2026-10-01T08:19:45.751519+00:00"
+    },
+    {
+      "file": "admin-quality-desktop.png",
+      "sha256": "97da8e53bc5444438dd5f08a93b5ee993c8449aac8ea2cac1c79f1f4fd040d2d",
+      "imageSize": [
+        1280,
+        2053
+      ],
+      "viewportWidthCssPx": 1280,
+      "viewportHeightCssPx": null,
+      "capturedAtUtc": "2026-10-01T08:19:46.248318+00:00"
+    },
+    {
+      "file": "admin-quality-mobile.png",
+      "sha256": "81ea8cac8c69ce52cb252e9552aa8affe96a512860401c9646d5c59219c977fd",
+      "imageSize": [
+        390,
+        2740
+      ],
+      "viewportWidthCssPx": 390,
+      "viewportHeightCssPx": null,
+      "capturedAtUtc": "2026-10-01T08:19:46.348242+00:00"
+    },
+    {
+      "file": "admin-quality-mobile-errors.png",
+      "sha256": "caa046a4fae6e6ecaca6d9160aa189631255ff623509474bbaad07cf332467ea",
+      "imageSize": [
+        390,
+        2813
+      ],
+      "viewportWidthCssPx": 390,
+      "viewportHeightCssPx": null,
+      "capturedAtUtc": "2026-10-01T08:21:26.012247+00:00"
+    }
+  ]
+}

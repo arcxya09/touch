@@ -45,6 +45,7 @@ class MobileSession(Base):
     access_expires: Mapped[int] = mapped_column(BigInteger)
     refresh_expires: Mapped[int] = mapped_column(BigInteger)
     epoch: Mapped[int] = mapped_column(Integer)
+    supports_recall: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 
 class AdminSession(Base):

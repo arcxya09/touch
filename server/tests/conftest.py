@@ -32,10 +32,11 @@ def client():
 
 
 def login(client, name):
-    response = client.post("/api/v1/auth/login", json={"username": name, "password": "password123!"})
+    response = client.post("/api/v1/auth/login", headers={"X-Touch-Capabilities": "recall-v1"},
+                           json={"username": name, "password": "password123!"})
     assert response.status_code == 200, response.text
     data = response.json()
-    return {"Authorization": "Bearer " + data["access_token"]}, data
+    return {"Authorization": "Bearer " + data["access_token"], "X-Touch-Capabilities": "recall-v1"}, data
 
 
 def friends(client, a="alice", b="bob"):

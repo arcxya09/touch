@@ -56,11 +56,13 @@ class SafetyPreviewTest {
                 compose.waitUntil(15000) { vm.connected }
                 val title = compose.onNodeWithText("消息").fetchSemanticsNode().boundsInRoot
                 val status = compose.onNodeWithTag("connection-status").fetchSemanticsNode().boundsInRoot
-                assertTrue(status.center.y in title.top..title.bottom)
+                assertTrue(status.top >= title.bottom)
+                compose.onNodeWithTag("connection-status").assertHasClickAction()
                 scenario.onActivity { vm.openConversation(cid) }
                 compose.waitUntil(20000) { compose.onAllNodesWithTag("thumbnail-${message.id}", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
                 compose.onNodeWithTag("thumbnail-${message.id}", useUnmergedTree = true).assertIsDisplayed()
-                scenario.onActivity { vm.screen = "settings" }
+                scenario.onActivity { vm.navigate(Screen.Settings) }
+                compose.onNodeWithText("隐私与安全").performScrollTo().performClick()
                 compose.onNodeWithContentDescription("从最近任务隐藏开关").performScrollTo().assertIsOff().performClick()
                 compose.waitUntil(5000) { vm.safety.hideRecents && !vm.busy }
                 compose.waitForIdle()
@@ -70,7 +72,8 @@ class SafetyPreviewTest {
                 scenario.onActivity { vm = ViewModelProvider(it)[AppViewModel::class.java] }
                 compose.waitUntil(15000) { vm.initialized }
                 assertTrue(vm.safety.hideRecents); assertTrue(hidden())
-                scenario.onActivity { vm.screen = "settings" }
+                scenario.onActivity { vm.navigate(Screen.Settings) }
+                compose.onNodeWithText("隐私与安全").performScrollTo().performClick()
                 compose.onNodeWithContentDescription("从最近任务隐藏开关").performScrollTo().performClick()
                 compose.waitUntil(5000) { !vm.safety.hideRecents && !vm.busy }
                 compose.waitForIdle(); assertFalse(hidden())

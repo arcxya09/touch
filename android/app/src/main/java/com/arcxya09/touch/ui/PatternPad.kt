@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
 import com.arcxya09.touch.security.Pattern
 import kotlin.math.hypot
 
@@ -47,8 +48,8 @@ import kotlin.math.hypot
         if (visible) {
             val step = size.width / 3f
             fun center(index: Int) = Offset((index % 3 + 0.5f) * step, (index / 3 + 0.5f) * step)
-            points.zipWithNext().forEach { (a, b) -> drawLine(color.copy(alpha = 0.6f), center(a), center(b), 7f) }
-            for (i in 0..8) drawCircle(color.copy(alpha = if (i in points) 1f else 0.3f), if (i in points) 12f else 7f, center(i))
+            points.zipWithNext().forEach { (a, b) -> drawLine(color.copy(alpha = 0.6f), center(a), center(b), 2.dp.toPx()) }
+            for (i in 0..8) drawCircle(color.copy(alpha = if (i in points) 1f else 0.3f), if (i in points) 5.dp.toPx() else 3.dp.toPx(), center(i))
         }
     }
 }

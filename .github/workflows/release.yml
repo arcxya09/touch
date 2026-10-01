@@ -14,7 +14,12 @@ concurrency:
   group: touch-release
   cancel-in-progress: false
 jobs:
+  devices:
+    uses: ./.github/workflows/device-tests.yml
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
   release:
+    needs: devices
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -51,7 +56,8 @@ jobs:
       - name: Server checks
         run: |
           pip install -r server/requirements-dev.txt
-          ruff check server/app server/tests scripts
+          ruff check server/app server/tests scripts ops
+          python -m unittest discover -s scripts -p test_check_design_screenshots.py -v
           cd server
           pytest -q
       - name: Build and validate signed APK
@@ -81,11 +87,11 @@ jobs:
             echo 'Could not verify previous release; refusing publication.' >&2
             exit 1
           fi
-      - name: Upload draft, verify, then publish
+      - name: Upload and verify draft for independent acceptance
         run: |
           gh release create "$RELEASE_TAG" --verify-tag --draft --title "Touch番茄钟 $RELEASE_TAG" --notes-file RELEASE_NOTES.md dist/touch.apk dist/update.json dist/SHA256SUMS.txt
           python scripts/verify_release.py "$RELEASE_TAG"
-          gh release edit "$RELEASE_TAG" --draft=false --latest
+          echo 'Draft verified. Complete independent release validation before running Finalize verified draft.'
       - name: Remove temporary signing material
         if: always()
         run: rm -f "$RUNNER_TEMP/touch-release.jks"

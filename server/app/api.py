@@ -14,15 +14,23 @@ from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from .config import settings
+from .capabilities import can_recall, message_for_client, supports_recall
+from .passwords import replace_password
+from .uploads import require_storage
 from .account_deletion import lock_accounts
 from .profiles import Profile, avatar_response, profile_changed, read_avatar, set_avatar
 from .database import get_db
 from .models import Attachment, Contact, Conversation, Message, MobileSession, SendReceipt, SyncEvent, User, now, uid
-from .security import current_user, digest, dummy_hash, limiter, password_hasher, ready_user, token, verify_password
+from .security import authenticate, current_user, digest, dummy_hash, limiter, ready_user, token, verify_password
 from .services import (all_conversations, attachment_json, conversation_for, emit, message_json, pair,
                        user_json, visible_after)
 
 router = APIRouter(prefix="/api/v1")
+
+
+def revalidate_ready_user(request, db):
+    """Call after account locks, before a write can outlive token revocation."""
+    return ready_user(authenticate(db, request.headers["authorization"][7:])[0])
 
 
 class Login(BaseModel):
@@ -88,6 +96,7 @@ def login(body: Login, request: Request, db: Session = Depends(get_db)):
         session = MobileSession(user_id=user.id)
         db.add(session)
     user.session_epoch += 1
+    session.supports_recall = supports_recall(request)
     result = rotate_session(user, session)
     db.commit()
     return result
@@ -111,13 +120,20 @@ def refresh(body: Refresh, db: Session = Depends(get_db)):
 
 
 @router.get("/auth/me")
-def me(user: User = Depends(current_user)):
+def me(request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    db.scalar(select(User).where(User.id == user.id).with_for_update().execution_options(populate_existing=True))
+    user, session = authenticate(db, request.headers["authorization"][7:])
+    declared = supports_recall(request)
+    if session.supports_recall != declared:
+        session.supports_recall = declared
+        db.commit()
     return user_json(user, private=True)
 
 
 @router.patch("/auth/profile")
-def edit_profile(body: Profile, user: User = Depends(ready_user), db: Session = Depends(get_db)):
-    user = lock_accounts(db)[user.id]
+def edit_profile(body: Profile, request: Request, user: User = Depends(ready_user), db: Session = Depends(get_db)):
+    lock_accounts(db)
+    user = revalidate_ready_user(request, db)
     user.display_name, user.bio = body.display_name, body.bio.strip()
     profile_changed(db, user)
     db.commit()
@@ -125,10 +141,10 @@ def edit_profile(body: Profile, user: User = Depends(ready_user), db: Session = 
 
 
 @router.post("/auth/avatar")
-def upload_avatar(file: UploadFile = File(), user: User = Depends(ready_user), db: Session = Depends(get_db)):
-    limiter.check("avatar:" + user.id, 10, 60)
+def upload_avatar(request: Request, file: UploadFile = File(), user: User = Depends(ready_user), db: Session = Depends(get_db)):
     data = read_avatar(file)
-    user = lock_accounts(db)[user.id]
+    lock_accounts(db)
+    user = revalidate_ready_user(request, db)
     set_avatar(user, data)
     profile_changed(db, user)
     db.commit()
@@ -136,8 +152,9 @@ def upload_avatar(file: UploadFile = File(), user: User = Depends(ready_user), d
 
 
 @router.delete("/auth/avatar")
-def remove_avatar(user: User = Depends(ready_user), db: Session = Depends(get_db)):
-    user = lock_accounts(db)[user.id]
+def remove_avatar(request: Request, user: User = Depends(ready_user), db: Session = Depends(get_db)):
+    lock_accounts(db)
+    user = revalidate_ready_user(request, db)
     set_avatar(user, None)
     profile_changed(db, user)
     db.commit()
@@ -155,8 +172,9 @@ class Preferences(BaseModel):
 
 
 @router.patch("/auth/preferences")
-def preferences(body: Preferences, user: User = Depends(ready_user), db: Session = Depends(get_db)):
-    user = db.scalar(select(User).where(User.id == user.id).with_for_update().execution_options(populate_existing=True))
+def preferences(body: Preferences, request: Request, user: User = Depends(ready_user), db: Session = Depends(get_db)):
+    db.scalar(select(User).where(User.id == user.id).with_for_update().execution_options(populate_existing=True))
+    user = revalidate_ready_user(request, db)
     if not user.is_admin:
         raise HTTPException(403, "仅管理员可设置已读标识")
     user.read_receipts_enabled = body.read_receipts_enabled
@@ -173,21 +191,23 @@ def verify(body: VerifyPassword, user: User = Depends(current_user)):
 
 
 @router.post("/auth/password")
-def change_password(body: Password, user: User = Depends(current_user), db: Session = Depends(get_db)):
+def change_password(body: Password, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
     limiter.check("password:" + user.id, 5, 60)
-    if not verify_password(user.password_hash, body.current_password):
-        raise HTTPException(400, "当前密码错误")
-    if body.current_password == body.new_password:
-        raise HTTPException(400, "新密码不能与当前密码相同")
-    user.password_hash = password_hasher.hash(body.new_password)
-    user.must_change_password = False
+    db.scalar(select(User).where(User.id == user.id).with_for_update().execution_options(populate_existing=True))
+    user, _ = authenticate(db, request.headers["authorization"][7:])
+    replace_password(db, user, body.current_password, body.new_password)
+    session = MobileSession(user_id=user.id, supports_recall=supports_recall(request))
+    db.add(session)
+    result = {**user_json(user, private=True), "session": rotate_session(user, session)}
     db.commit()
-    return user_json(user, private=True)
+    return result
 
 
 @router.post("/auth/logout")
-def logout(user: User = Depends(current_user), db: Session = Depends(get_db)):
-    db.execute(delete(MobileSession).where(MobileSession.user_id == user.id))
+def logout(request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    db.scalar(select(User).where(User.id == user.id).with_for_update().execution_options(populate_existing=True))
+    _, session = authenticate(db, request.headers["authorization"][7:])
+    db.delete(session)
     db.commit()
     return {"ok": True}
 
@@ -218,7 +238,7 @@ def contacts(user: User = Depends(ready_user), db: Session = Depends(get_db)):
 
 
 @router.post("/contacts/requests")
-def request_contact(body: ContactRequest, user: User = Depends(ready_user), db: Session = Depends(get_db)):
+def request_contact(body: ContactRequest, request: Request, user: User = Depends(ready_user), db: Session = Depends(get_db)):
     limiter.check("requests:" + user.id, 10, 60)
     peer = db.get(User, str(body.user_id))
     if not peer or not peer.active or peer.id == user.id:
@@ -226,8 +246,7 @@ def request_contact(body: ContactRequest, user: User = Depends(ready_user), db: 
     # Lock both users before updating contact state; also serializes reciprocal requests.
     db.scalars(select(User).where(User.id.in_([user.id, peer.id])).order_by(User.id).with_for_update()
                .execution_options(populate_existing=True)).all()
-    if not user.active:
-        raise HTTPException(401, "登录已失效")
+    user = revalidate_ready_user(request, db)
     if not peer.active:
         raise HTTPException(404, "账号不存在")
     key = pair(user.id, peer.id)
@@ -248,13 +267,12 @@ def request_contact(body: ContactRequest, user: User = Depends(ready_user), db: 
 
 
 @router.post("/contacts/{peer_id}")
-def change_contact(peer_id: UUID, body: ContactAction, user: User = Depends(ready_user),
+def change_contact(peer_id: UUID, body: ContactAction, request: Request, user: User = Depends(ready_user),
                    db: Session = Depends(get_db)):
     key = pair(user.id, str(peer_id))
     db.scalars(select(User).where(User.id.in_([user.id, str(peer_id)])).order_by(User.id).with_for_update()
                .execution_options(populate_existing=True)).all()
-    if not user.active:
-        raise HTTPException(401, "登录已失效")
+    user = revalidate_ready_user(request, db)
     contact = db.get(Contact, key)
     if not contact:
         raise HTTPException(404, "联系人不存在")
@@ -273,23 +291,25 @@ def change_contact(peer_id: UUID, body: ContactAction, user: User = Depends(read
 
 
 @router.get("/conversations")
-def conversations(after_time: int = Query(default=0, ge=0), user: User = Depends(ready_user),
+def conversations(request: Request, after_time: int = Query(default=0, ge=0), user: User = Depends(ready_user),
                   db: Session = Depends(get_db)):
-    return all_conversations(db, user.id, after_time)
+    return all_conversations(db, user.id, after_time, supports_recall(request))
 
 
 @router.get("/conversations/{conversation_id}/messages")
-def history(conversation_id: UUID, before: int | None = Query(default=None, ge=1),
+def history(conversation_id: UUID, request: Request, before: int | None = Query(default=None, ge=1),
             after_time: int = Query(default=0, ge=0),
             limit: int = Query(default=50, ge=1, le=100), user: User = Depends(ready_user),
             db: Session = Depends(get_db)):
     conversation = conversation_for(db, str(conversation_id), user.id)
     query = select(Message).where(Message.conversation_id == conversation.id,
                                    Message.seq > visible_after(conversation, user.id), Message.created_at > after_time)
+    if not user.is_admin:
+        query = query.where(Message.kind != "recalled")
     if before is not None:
         query = query.where(Message.seq < before)
     messages = db.scalars(query.order_by(Message.seq.desc()).limit(limit + 1)).all()
-    return {"messages": [message_json(db, m) for m in reversed(messages[:limit])],
+    return {"messages": [message_for_client(message_json(db, m), supports_recall(request)) for m in reversed(messages[:limit])],
             "has_more": len(messages) > limit}
 
 
@@ -300,13 +320,14 @@ def original_message(conversation_id: UUID, message_id: UUID,
     conversation = conversation_for(db, str(conversation_id), user.id)
     message = db.get(Message, str(message_id))
     if (not message or message.conversation_id != conversation.id
-            or message.seq <= visible_after(conversation, user.id) or message.created_at <= after_time):
+            or message.seq <= visible_after(conversation, user.id) or message.created_at <= after_time
+            or message.kind == "recalled"):
         raise HTTPException(404, "原消息不可用")
     return message_json(db, message)
 
 
 @router.get("/conversations/{conversation_id}/messages/{message_id}/context")
-def message_context(conversation_id: UUID, message_id: UUID,
+def message_context(conversation_id: UUID, message_id: UUID, request: Request,
                     after_time: int = Query(default=0, ge=0),
                     user: User = Depends(ready_user), db: Session = Depends(get_db)):
     target = original_message(conversation_id, message_id, after_time, user, db)
@@ -314,24 +335,28 @@ def message_context(conversation_id: UUID, message_id: UUID,
     visible = select(Message).where(Message.conversation_id == conversation.id,
                                     Message.seq > visible_after(conversation, user.id),
                                     Message.created_at > after_time)
+    if not user.is_admin:
+        visible = visible.where(Message.kind != "recalled")
     before = db.scalars(visible.where(Message.seq < target["seq"]).order_by(Message.seq.desc()).limit(24)).all()
     after = db.scalars(visible.where(Message.seq >= target["seq"]).order_by(Message.seq).limit(26)).all()
-    return {"messages": [message_json(db, m) for m in [*reversed(before), *after]], "target_id": target["id"]}
+    return {"messages": [message_for_client(message_json(db, m), supports_recall(request))
+                          for m in [*reversed(before), *after]], "target_id": target["id"]}
 
 
 @router.post("/conversations/{conversation_id}/messages")
-def send(conversation_id: UUID, body: SendMessage, user: User = Depends(ready_user),
+def send(conversation_id: UUID, body: SendMessage, request: Request, user: User = Depends(ready_user),
          db: Session = Depends(get_db)):
     limiter.check("send:" + user.id, 120, 60)
     # User locks precede conversation locks in every write to avoid deadlocks.
     conversation = conversation_for(db, str(conversation_id), user.id)
     db.scalars(select(User).where(User.id.in_([conversation.a, conversation.b]))
                .order_by(User.id).with_for_update().execution_options(populate_existing=True)).all()
-    if not user.active:
-        raise HTTPException(401, "登录已失效")
+    user = revalidate_ready_user(request, db)
     conversation = conversation_for(db, conversation.id, user.id, lock=True)
     previous = db.scalar(select(Message).where(Message.sender_id == user.id, Message.client_id == str(body.client_id)))
     if previous:
+        if previous.kind == "recalled":
+            raise HTTPException(409, "该消息已撤回，不能重新发送")
         if (previous.conversation_id != conversation.id or previous.kind != body.kind or previous.text != body.text
                 or previous.attachment_id != (str(body.attachment_id) if body.attachment_id else None)
                 or previous.reply_to_id != (str(body.reply_to_id) if body.reply_to_id else None)):
@@ -358,7 +383,8 @@ def send(conversation_id: UUID, body: SendMessage, user: User = Depends(ready_us
     if body.reply_to_id:
         original = db.get(Message, str(body.reply_to_id))
         if (not original or original.conversation_id != conversation.id
-                or original.seq <= visible_after(conversation, user.id) or original.created_at <= body.after_time):
+                or original.seq <= visible_after(conversation, user.id) or original.created_at <= body.after_time
+                or original.kind == "recalled"):
             raise HTTPException(409, "原消息不可用，请移除引用后再发送")
     conversation.a_hidden = conversation.b_hidden = False
     conversation.next_seq += 1
@@ -377,11 +403,46 @@ def send(conversation_id: UUID, body: SendMessage, user: User = Depends(ready_us
     return result
 
 
-@router.post("/conversations/{conversation_id}/read")
-def read(conversation_id: UUID, body: ReadPosition, user: User = Depends(ready_user), db: Session = Depends(get_db)):
+@router.post("/conversations/{conversation_id}/messages/{message_id}/recall")
+def recall(conversation_id: UUID, message_id: UUID, request: Request, user: User = Depends(ready_user),
+           db: Session = Depends(get_db)):
     initial = conversation_for(db, str(conversation_id), user.id)
     db.scalars(select(User).where(User.id.in_([initial.a, initial.b])).order_by(User.id).with_for_update()
                .execution_options(populate_existing=True)).all()
+    # Login, password rotation and capability changes use the same account locks.
+    # A new capable session must not authorize an old request that waited here.
+    user = revalidate_ready_user(request, db)
+    conversation = conversation_for(db, initial.id, user.id, lock=True)
+    message = db.get(Message, str(message_id))
+    if not message or message.conversation_id != conversation.id:
+        raise HTTPException(404, "消息不存在")
+    if message.sender_id != user.id:
+        raise HTTPException(403, "只能撤回自己的消息")
+    if message.kind == "recalled":
+        return {"ok": True}
+    if not can_recall(db, conversation, supports_recall(request)):
+        raise HTTPException(409, "双方更新 Touch 并登录后才可撤回消息")
+    attachment_id = message.attachment_id
+    message.kind = "recalled"
+    message.text = ""
+    message.attachment_id = None
+    message.reply_to_id = message.reply_to_seq = message.reply_to_created_at = None
+    db.flush()
+    if attachment_id:
+        db.execute(delete(Attachment).where(Attachment.id == attachment_id))
+    emit(db, [conversation.a, conversation.b], "message", {"message_id": message.id})
+    db.commit()
+    if attachment_id:
+        (settings.data_dir / "files" / attachment_id).unlink(missing_ok=True)
+    return {"ok": True}
+
+
+@router.post("/conversations/{conversation_id}/read")
+def read(conversation_id: UUID, body: ReadPosition, request: Request, user: User = Depends(ready_user), db: Session = Depends(get_db)):
+    initial = conversation_for(db, str(conversation_id), user.id)
+    db.scalars(select(User).where(User.id.in_([initial.a, initial.b])).order_by(User.id).with_for_update()
+               .execution_options(populate_existing=True)).all()
+    user = revalidate_ready_user(request, db)
     conversation = conversation_for(db, str(conversation_id), user.id, lock=True)
     field = "a_read" if user.id == conversation.a else "b_read"
     new = max(getattr(conversation, field), min(body.seq, conversation.next_seq))
@@ -399,8 +460,9 @@ def read(conversation_id: UUID, body: ReadPosition, user: User = Depends(ready_u
 
 
 @router.post("/conversations/{conversation_id}/clear")
-def clear(conversation_id: UUID, user: User = Depends(ready_user), db: Session = Depends(get_db)):
+def clear(conversation_id: UUID, request: Request, user: User = Depends(ready_user), db: Session = Depends(get_db)):
     db.scalar(select(User).where(User.id == user.id).with_for_update())
+    user = revalidate_ready_user(request, db)
     conversation = conversation_for(db, str(conversation_id), user.id, lock=True)
     field = "a_clear" if user.id == conversation.a else "b_clear"
     setattr(conversation, field, conversation.next_seq)
@@ -412,8 +474,9 @@ def clear(conversation_id: UUID, user: User = Depends(ready_user), db: Session =
 
 
 @router.delete("/conversations/{conversation_id}")
-def delete_conversation(conversation_id: UUID, user: User = Depends(ready_user), db: Session = Depends(get_db)):
+def delete_conversation(conversation_id: UUID, request: Request, user: User = Depends(ready_user), db: Session = Depends(get_db)):
     db.scalar(select(User).where(User.id == user.id).with_for_update())
+    user = revalidate_ready_user(request, db)
     conversation = conversation_for(db, str(conversation_id), user.id, lock=True)
     side = "a" if user.id == conversation.a else "b"
     setattr(conversation, side + "_hidden", True)
@@ -429,7 +492,7 @@ def delete_conversation(conversation_id: UUID, user: User = Depends(ready_user),
 
 
 @router.get("/sync")
-def sync(cursor: int = Query(default=0, ge=0), limit: int = Query(default=100, ge=1, le=500),
+def sync(request: Request, cursor: int = Query(default=0, ge=0), limit: int = Query(default=100, ge=1, le=500),
          after_time: int = Query(default=0, ge=0),
          user: User = Depends(ready_user), db: Session = Depends(get_db)):
     rows = db.scalars(select(SyncEvent).where(SyncEvent.user_id == user.id, SyncEvent.seq > cursor)
@@ -447,14 +510,15 @@ def sync(cursor: int = Query(default=0, ge=0), limit: int = Query(default=100, g
                 payload = None
             if payload is None:
                 kind, payload = "noop", {}
+            else:
+                payload = message_for_client(payload, supports_recall(request))
         events.append({"seq": row.seq, "kind": kind, "payload": payload})
     return {"events": events, "cursor": events[-1]["seq"] if events else cursor, "has_more": len(rows) > limit}
 
 
 @router.post("/files")
-def upload(kind: Literal["image", "file"] = Query(), file: UploadFile = File(),
+def upload(request: Request, kind: Literal["image", "file"] = Query(), file: UploadFile = File(),
            user: User = Depends(ready_user), db: Session = Depends(get_db)):
-    limiter.check("upload:" + user.id, 30, 60)
     attachment_id = uid()
     path = settings.data_dir / "files" / attachment_id
     size, checksum = 0, hashlib.sha256()
@@ -465,6 +529,7 @@ def upload(kind: Literal["image", "file"] = Query(), file: UploadFile = File(),
                 size += len(chunk)
                 if size > limit:
                     raise HTTPException(413, "文件超过大小限制")
+                require_storage(len(chunk))
                 checksum.update(chunk)
                 destination.write(chunk)
         if size == 0:
@@ -485,8 +550,7 @@ def upload(kind: Literal["image", "file"] = Query(), file: UploadFile = File(),
                           size=size, sha256=checksum.hexdigest())
         db.scalar(select(User).where(User.id == user.id).with_for_update()
                   .execution_options(populate_existing=True))
-        if not user.active:
-            raise HTTPException(401, "登录已失效")
+        revalidate_ready_user(request, db)
         db.add(item)
         db.commit()
         return attachment_json(item)

@@ -1,6 +1,8 @@
 package com.arcxya09.touch.ui
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Modifier
@@ -17,10 +19,9 @@ import kotlinx.coroutines.launch
     val scope = rememberCoroutineScope()
     val report = remember(vm.expiryTick, vm.diagnosticDetails) { vm.repository.connection.report(AlertService.running) }
     AlertDialog(onDismissRequest = { vm.showDiagnostics = false }, title = { Text("连接诊断") }, text = {
-        Column(Modifier.verticalScroll(rememberScrollState())) {
-            Text(report)
-            Text("详细记录（仅本次进程，最多 40 条脱敏事件）")
-            Switch(checked = vm.diagnosticDetails, onCheckedChange = vm::enableDiagnostics)
+        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text(report, style = MaterialTheme.typography.bodyMedium)
+            ToggleSetting("详细记录", "仅本次进程，最多 40 条脱敏事件。", vm.diagnosticDetails, onChange = vm::enableDiagnostics)
         }
     }, confirmButton = { TextButton(onClick = { vm.showDiagnostics = false }) { Text("关闭") } },
         dismissButton = { TextButton(onClick = { scope.launch { clipboard.setClipEntry(ClipEntry(android.content.ClipData.newPlainText("连接诊断", report))) } }) { Text("复制脱敏信息") } })

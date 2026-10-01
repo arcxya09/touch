@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "releaseTag": "v0.0.0",
+  "commit": "REPLACE_WITH_40_CHARACTER_TARGET_COMMIT",
+  "apkSha256": "REPLACE_WITH_TARGET_APK_SHA256",
+  "productionAccountsUsed": false,
+  "checks": {
+    "historicalPublishedUpgrade": {"passed": false, "sourceKind": "published-apk", "fromVersionCode": 0, "evidenceUrl": ""},
+    "signedPackageRejection": {"passed": false, "evidenceUrl": ""},
+    "domesticOemNotifications": {"passed": false, "manufacturer": "", "model": "", "osVersion": "", "emulator": false, "evidenceUrl": ""},
+    "domesticOemBackgroundReturn": {"passed": false, "manufacturer": "", "model": "", "osVersion": "", "emulator": false, "evidenceUrl": ""},
+    "domesticOemDoze": {"passed": false, "manufacturer": "", "model": "", "osVersion": "", "emulator": false, "evidenceUrl": ""},
+    "offlineRecovery": {"passed": false, "evidenceUrl": ""}
+  }
+}

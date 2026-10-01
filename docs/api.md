@@ -7,7 +7,7 @@
 - `POST /auth/login`：`username`、`password`，返回 `access_token`、`refresh_token`、`expires_in` 和 `user`。
 - `POST /auth/refresh`：`refresh_token`；刷新时轮换两个 Token。客户端必须串行刷新。
 - `GET /auth/me`；`POST /auth/logout`。
-- `POST /auth/password`：`current_password`、`new_password`；初始账号必须先完成改密。
+- `POST /auth/password`：`current_password`、`new_password`；初始账号必须先完成改密。成功响应保留顶层用户字段，并新增 `session`（结构同登录响应）。客户端应先持久化该新会话再继续请求；改密会撤销旧移动 Token、刷新凭据和网页登录会话。旧客户端忽略新字段后需重新登录。
 - `POST /auth/verify-password`：`password`，用于验证隐私设置修改。
 
 401 时，`X-Auth-Reason: expired` 允许尝试刷新；其他 401 应清除本地凭证并重新登录。隐私模式下仍须先经过图案解锁。登录 Token 默认有效 30 分钟，刷新凭证 30 天；新设备登录撤销旧会话。
@@ -50,6 +50,12 @@
 - `GET /conversations/{id}/messages/{message_id}/context?after_time=...`：返回目标前最多 24 条、目标及其后最多 26 条，总计不超过 50 条。不得借此查询跨会话或已清理记录。
 
 原消息回收后引用元数据仍保留；客户端显示“原消息不可用”。本地过期检查适用于引用缓存、草稿引用和定位结果。服务端先迁移到 `f620ba741901`，再发布客户端；迁移新增可空字段，不改变旧请求行为。
+
+## 撤回能力协商
+
+请求头 `X-Touch-Capabilities: recall-v1` 声明客户端能处理撤回。登录和 `/auth/me` 记录当前移动会话声明；私有用户 JSON 的 `capabilities: ["recall-v1"]` 表示服务端支持。会话返回 `can_recall`，要求请求者已声明能力且双方当前有效会话均支持。旧客户端正常收发不要求此请求头。
+
+`POST /conversations/{id}/messages/{message_id}/recall` 仅发送者可调用，服务端再次检查双方能力，条件不足返回 409。撤回后的 `kind=recalled` 消息不含原正文、附件或引用；普通用户历史/上下文/摘要过滤该记录，管理员可见。旧端同步遇到实际撤回载荷，或历史/上下文/摘要实际要返回撤回记录时，返回 409 `此会话包含新版消息状态，请更新 Touch 后继续同步`，不返回假附件或普通文本占位。迁移要求及本机行为见 [消息撤回与本机清理](message-actions.md)。
 
 ## 同步
 

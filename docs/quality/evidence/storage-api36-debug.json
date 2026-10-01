@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "rows": 50000,
+  "pageSize": 50,
+  "samples": 100,
+  "device": "sdk_gphone64_x86_64",
+  "sdk": 36,
+  "buildType": "debug",
+  "pageP50Ms": 17.036854,
+  "pageP95Ms": 25.892564,
+  "pageMaxMs": 30.188922,
+  "seedMs": 4242.66322,
+  "clearMs": 925.503637,
+  "formalPerformanceGatePassed": false
+}

@@ -47,38 +47,43 @@ class ProfileInstrumentedTest {
             scenario.onActivity { vm = ViewModelProvider(it)[AppViewModel::class.java] }
             compose.waitUntil(20000) { vm.initialized && vm.mayShowChat && vm.user != null }
             compose.onNodeWithContentDescription("设置").performClick()
+            compose.onNodeWithText("本机数据").performScrollTo().performClick()
             compose.onNodeWithContentDescription("本地定时销毁开关").assertIsOff()
+            compose.onNodeWithContentDescription("返回").performClick()
             compose.onNodeWithText("编辑个人资料").performClick()
             compose.onNodeWithText("昵称").performTextReplacement("资料验收昵称")
             compose.onNodeWithText("个人简介").performTextReplacement("资料验收简介")
-            compose.onNodeWithText("保存资料").performClick()
+            compose.onNodeWithText("保存资料").performScrollTo().performClick()
             try {
-                compose.waitUntil(20000) { vm.error != null && !vm.busy }
+                compose.waitUntil(20000) { vm.user?.name == "资料验收昵称" && !vm.isWorking(Operation.Profile) }
             } catch (e: Throwable) {
                 throw AssertionError("Profile state: screen=${vm.screen}, visible=${vm.mayShowChat}, busy=${vm.busy}, error=${vm.error}\n", e)
             }
-            assertEquals("个人资料已保存", vm.error)
-            compose.onNodeWithText("知道了").performClick()
+            assertNull(vm.error)
             assertEquals("资料验收昵称", repo.api.user!!.name)
             assertEquals("资料验收简介", repo.api.user!!.bio)
             // A fixture image URI substitutes only for the system picker result.
             val avatar = File(app.cacheDir, "test-avatar.png")
             avatar.outputStream().use { Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888).compress(Bitmap.CompressFormat.PNG, 100, it) }
             scenario.onActivity { vm.pendingAvatar = Uri.fromFile(avatar) }
+            compose.waitUntil(10000) { compose.onAllNodes(hasText("上传头像") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText("上传头像").performClick()
             compose.waitUntil(20000) { !vm.busy && vm.user?.avatarVersion != null }
-            compose.waitUntil(15000) { compose.onAllNodesWithContentDescription("资料验收昵称的头像").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(15000) { compose.onAllNodesWithTag("avatar-${vm.user!!.id}", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
             assertNotNull(repo.avatarBytes(repo.api.user!!))
             avatar.delete()
             compose.onNodeWithText("移除头像").performClick()
             compose.waitUntil(20000) { !vm.busy && vm.user?.avatarVersion == null }
             compose.onNodeWithContentDescription("返回").performClick()
+            compose.onNodeWithText("本机数据").performScrollTo().performClick()
             compose.onNodeWithContentDescription("本地定时销毁开关").performClick()
-            compose.onNodeWithText("确认").performClick()
+            compose.onNodeWithText("确认并开启").performClick()
             compose.waitUntil(15000) { !vm.busy && vm.retentionEnabled }
             assertEquals(3600L, vm.retentionSeconds)
             compose.onNodeWithContentDescription("本地定时销毁开关").performClick()
             compose.waitUntil(15000) { !vm.busy && !vm.retentionEnabled }
+            compose.onNodeWithContentDescription("返回").performClick()
+            compose.onNodeWithText("隐私与安全").performScrollTo().performClick()
             if (admin) {
                 compose.onNodeWithContentDescription("显示已读标识开关").performScrollTo().assertIsOff().performClick()
                 compose.waitUntil(15000) { !vm.busy && vm.user?.readReceipts == true }
