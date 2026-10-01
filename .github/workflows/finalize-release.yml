@@ -1,9 +1,9 @@
-name: Finalize verified draft
+name: Finalize verified candidate
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing draft tag to verify and publish without replacing assets
+        description: Existing draft or public prerelease tag to verify and publish without replacing assets
         type: string
         required: true
       validation_run_id:
@@ -39,12 +39,12 @@ jobs:
         with:
           packages: 'platform-tools build-tools;36.0.0'
           log-accepted-android-sdk-licenses: false
-      - name: Download existing draft assets
+      - name: Download existing candidate assets
         run: |
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           mkdir dist
           gh release download "$RELEASE_TAG" --pattern touch.apk --pattern update.json --pattern SHA256SUMS.txt --dir dist
-          python scripts/verify_release.py "$RELEASE_TAG"
+          python scripts/verify_release.py "$RELEASE_TAG" --allow-prerelease
       - name: Verify package, pinned certificate and manifest
         run: |
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs dist/touch.apk > "$RUNNER_TEMP/apk-signature.txt"
@@ -57,7 +57,7 @@ jobs:
           elif ! grep -q 'HTTP 404' "$RUNNER_TEMP/release-query-error"; then
             exit 1
           fi
-      - name: Publish verified draft as Latest
+      - name: Publish verified candidate as Latest
         run: |
           [[ "$VALIDATION_RUN_ID" =~ ^[0-9]+$ ]]
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VALIDATION_RUN_ID" > "$RUNNER_TEMP/validation-run.json"
@@ -68,4 +68,4 @@ jobs:
           export TARGET_COMMIT
           gh run list --workflow ci.yml --commit "$TARGET_COMMIT" --status success --json headSha,conclusion --limit 100 > "$RUNNER_TEMP/ci-runs.json"
           python -c 'import json,os; rows=json.load(open(os.environ["RUNNER_TEMP"]+"/ci-runs.json")); assert any(r["headSha"] == os.environ["TARGET_COMMIT"] and r["conclusion"] == "success" for r in rows), "The target commit has no successful full CI run"'
-          gh release edit "$RELEASE_TAG" --draft=false --latest
+          gh release edit "$RELEASE_TAG" --prerelease=false --draft=false --latest

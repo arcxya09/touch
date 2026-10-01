@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing draft tag whose exact APK was tested
+        description: Existing public prerelease tag whose exact APK was tested
         required: true
         type: string
       evidence_json:
@@ -27,13 +27,13 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
-      - name: Verify exact draft and acceptance evidence
+      - name: Verify exact prerelease and acceptance evidence
         run: |
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
           mkdir dist proof
           gh release download "$RELEASE_TAG" --pattern touch.apk --pattern update.json --pattern SHA256SUMS.txt --dir dist
-          python scripts/verify_release.py "$RELEASE_TAG"
+          python scripts/verify_release.py "$RELEASE_TAG" --allow-prerelease
           python -c 'import os,pathlib; pathlib.Path("proof/release-validation.json").write_text(os.environ["EVIDENCE_JSON"], encoding="utf-8")'
           python ops/release_evidence.py --evidence proof/release-validation.json --manifest dist/update.json --apk dist/touch.apk --commit "$(git rev-parse HEAD)"
       - uses: actions/upload-artifact@v4

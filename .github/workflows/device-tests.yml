@@ -58,7 +58,15 @@ jobs:
           api-level: ${{ matrix.api }}
           arch: x86_64
           target: google_apis
+          # Explicit phone resources for API 37; other images retain their existing defaults.
+          profile: ${{ matrix.api == '37.0' && 'pixel_8' || '' }}
+          ram-size: ${{ matrix.api == '37.0' && '3072M' || '' }}
+          heap-size: ${{ matrix.api == '37.0' && '576M' || '' }}
           disable-animations: true
+          # Preserve guest diagnostics without changing the boot timeout or test gates.
+          emulator-options: >-
+            -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+            ${{ matrix.api == '37.0' && '-show-kernel -verbose > /tmp/touch-emulator-boot.log 2>&1' || '' }}
           script: |
             adb reverse tcp:8010 tcp:8010
             ./android/gradlew -p android :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.arcxya09.touch.PrivacyInstrumentedTest,com.arcxya09.touch.LocalStorageInstrumentedTest,com.arcxya09.touch.ReplyStorageTest,com.arcxya09.touch.LocalMessageActionsTest,com.arcxya09.touch.NotificationNavigationTest,com.arcxya09.touch.DataBoundaryTest,com.arcxya09.touch.VisibilityMigrationTest,com.arcxya09.touch.ExportRecoveryTest,com.arcxya09.touch.ViewModelConversationIsolationTest,com.arcxya09.touch.AttachmentDraftInstrumentedTest,com.arcxya09.touch.DesignSystemInstrumentedTest -Pandroid.testInstrumentationRunnerArguments.touchTestUser=verify_local_ci -Pandroid.testInstrumentationRunnerArguments.touchTestPassword=test-only-local-123 --stacktrace
@@ -72,3 +80,4 @@ jobs:
             android/app/build/reports/androidTests/
             android/app/build/outputs/androidTest-results/
             ${{ runner.temp }}/device-api.log
+            /tmp/touch-emulator-boot.log
