@@ -369,7 +369,7 @@ import java.util.Locale
         }
         if (conversation?.canSend == false) Text("当前无法发送，请先建立有效联系人关系。", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
         else Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.Bottom) {
-            Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = activity::chooseImage, enabled = !vm.busy) { Icon(Icons.Outlined.Image, "发送图片") }
                 IconButton(onClick = activity::chooseDocument, enabled = !vm.busy) { Icon(Icons.Outlined.AttachFile, "发送文件") }
             }
