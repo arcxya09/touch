@@ -59,7 +59,7 @@ jobs:
           arch: x86_64
           target: google_apis
           # Explicit phone resources for API 37; other images retain their existing defaults.
-          profile: ${{ matrix.api == '37.0' && 'pixel_8' || '' }}
+          profile: ${{ matrix.api == '37.0' && 'pixel_2' || '' }}
           ram-size: ${{ matrix.api == '37.0' && '3072M' || '' }}
           heap-size: ${{ matrix.api == '37.0' && '576M' || '' }}
           disable-animations: true
