@@ -87,7 +87,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
     private suspend fun queuedDraft() = withContext(Dispatchers.Main.immediate) {
         draftJob?.cancel(); draftText = ""; quote = null
-        pageBefore = Long.MAX_VALUE; windowFirst = null; windowLast = null; browsingHistory = false; scrollRequest++
+        pageBefore = Long.MAX_VALUE; windowFirst = null; windowLast = null; browsingHistory = false
+        highlightId = null
+        // Publish the queued message before asking Compose to scroll to the last item.
+        reloadLocal(); scrollRequest++
     }
     var showDiagnostics by mutableStateOf(false)
     var diagnosticDetails by mutableStateOf(false); private set
@@ -105,6 +108,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun latest() = action {
         pageBefore = Long.MAX_VALUE; windowFirst = null; windowLast = null; browsingHistory = false
+        highlightId = null
         hasMore = repository.history(conversationId ?: return@action); reloadLocal(); scrollRequest++
     }
     fun locate(ref: ReplyRef) = action {

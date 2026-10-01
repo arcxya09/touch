@@ -69,7 +69,8 @@ class ConversationOnboardingTest {
             repo.sync()
             val handle = repo.download(repo.messages(cid).first { it.file?.id == item.id }) {}
             assertTrue(handle.valid())
-            compose.onNodeWithContentDescription("删除会话").performClick()
+            compose.onNodeWithContentDescription("更多操作").performClick()
+            compose.onNodeWithText("删除会话").performClick()
             compose.onNodeWithText("确认").performClick()
             compose.waitUntil(15000) { !vm.busy && vm.screen == "home" }
             assertTrue(repo.messages(cid).isEmpty())

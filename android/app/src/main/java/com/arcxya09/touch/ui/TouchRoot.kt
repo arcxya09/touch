@@ -299,6 +299,7 @@ import java.util.Locale
     // Chat text must never be serialized into Android's plaintext saved-instance state.
     val draft = vm.draftText
     var clear by remember { mutableStateOf(false) }
+    var more by remember { mutableStateOf(false) }
     val scroll = rememberLazyListState()
     val dragging by scroll.interactionSource.collectIsDraggedAsState()
     val lastId = vm.messages.lastOrNull()?.id
@@ -309,14 +310,14 @@ import java.util.Locale
     val hasIncoming = (conversation?.last?.seq ?: 0L) > (vm.messages.filterNot { it.pending }.lastOrNull()?.seq ?: Long.MAX_VALUE)
     LaunchedEffect(lastId) {
         if (vm.messages.isNotEmpty()) {
-            if (atBottom && !vm.browsingHistory) scroll.animateScrollToItem(vm.messages.size)
+            if (atBottom && !vm.browsingHistory) scroll.animateScrollToItem(vm.messages.size + 1)
             else newMessages = true
         }
     }
     LaunchedEffect(vm.scrollRequest) {
         if (vm.messages.isNotEmpty()) {
             val target = vm.highlightId?.let { id -> vm.messages.indexOfFirst { it.id == id }.takeIf { it >= 0 } }
-            scroll.scrollToItem(target?.plus(1) ?: if (vm.browsingHistory) 1 else vm.messages.size)
+            scroll.scrollToItem(target?.plus(1) ?: if (vm.browsingHistory) 1 else vm.messages.size + 1)
         }
     }
     LaunchedEffect(vm.conversationId) {
@@ -326,17 +327,40 @@ import java.util.Locale
         }.distinctUntilChanged().collect { vm.markVisibleRead(it) }
     }
     Column(Modifier.fillMaxSize()) {
-        Header(peer?.name ?: "聊天", { vm.screen = "home" }, status = vm.connectionStatus.label, onStatus = vm::diagnostics) {
-            peer?.let { Avatar(it, vm) }
-            IconButton(onClick = { clear = true }, enabled = !vm.busy) { Icon(Icons.Outlined.DeleteOutline, "删除会话") }
-            IconButton(onClick = vm::hide) { Icon(Icons.Outlined.Lock, "隐藏聊天") }
+        Header(peer?.name ?: "聊天", { vm.screen = "home" }) {
+            Box {
+                IconButton(onClick = { more = true }) { Icon(Icons.Outlined.MoreVert, "更多操作") }
+                DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
+                    DropdownMenuItem(text = { Text("隐藏聊天") }, leadingIcon = { Icon(Icons.Outlined.Lock, null) },
+                        onClick = { more = false; vm.hide() })
+                    DropdownMenuItem(text = { Text("连接诊断") }, onClick = { more = false; vm.diagnostics() })
+                    DropdownMenuItem(text = { Text("删除会话") }, leadingIcon = { Icon(Icons.Outlined.DeleteOutline, null) },
+                        enabled = !vm.busy, onClick = { more = false; clear = true })
+                }
+            }
         }
         Busy(vm)
-        LazyColumn(Modifier.weight(1f), state = scroll, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item { if (vm.hasMore) TextButton(onClick = vm::older, enabled = !vm.busy, modifier = Modifier.fillMaxWidth()) { Text("加载更早消息") } }
-            items(vm.messages, key = { it.id }) { message -> MessageBubble(message, vm, activity::openWebLink) }
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            LazyColumn(Modifier.fillMaxSize(), state = scroll, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                item { if (vm.hasMore) TextButton(onClick = vm::older, enabled = !vm.busy, modifier = Modifier.fillMaxWidth()) { Text("加载更早消息") } }
+                items(vm.messages, key = { it.id }) { message -> MessageBubble(message, vm, activity::openWebLink) }
+                item(key = "chat-bottom") { Spacer(Modifier.height(1.dp)) }
+            }
+            if (!atBottom || newMessages || hasIncoming || vm.browsingHistory) {
+                Surface(
+                    onClick = { vm.latest(); newMessages = false },
+                    enabled = !vm.busy,
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp).size(48.dp).testTag("jump-to-latest"),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.82f),
+                    shadowElevation = 3.dp,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Outlined.KeyboardArrowDown, if (newMessages || hasIncoming) "有新消息，返回最新" else "返回最新消息")
+                    }
+                }
+            }
         }
-        if (newMessages || hasIncoming || vm.browsingHistory) TextButton(onClick = { vm.latest(); newMessages = false }, modifier = Modifier.fillMaxWidth()) { Text(if (newMessages || hasIncoming) "有新消息 · 返回最新" else "返回最新消息") }
         vm.quote?.let { ref ->
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f)) { QuotePreview(ref, vm.conversationId.orEmpty(), vm, clickable = false) }
