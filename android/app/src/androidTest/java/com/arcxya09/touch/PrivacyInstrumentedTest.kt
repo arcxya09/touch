@@ -71,6 +71,27 @@ class PrivacyInstrumentedTest {
         unlock()
         compose.onNodeWithText("欢迎回来").assertDoesNotExist()
     }
+    @Test fun rotationReflowsWithoutRecreationAndBackgroundStillLocks() {
+        launch(); unlock()
+        var original: MainActivity? = null
+        scenario!!.onActivity {
+            original = it
+        }
+        val automation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation
+        try {
+            automation.setRotation(android.app.UiAutomation.ROTATION_FREEZE_90)
+            compose.waitUntil(10000) {
+                original!!.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+            }
+            scenario!!.onActivity { assertSame(original, it) }
+            compose.onNodeWithText("欢迎回来").assertIsDisplayed()
+            scenario!!.moveToState(Lifecycle.State.CREATED)
+            scenario!!.moveToState(Lifecycle.State.RESUMED)
+            compose.onNodeWithTag("timer-screen").assertIsDisplayed()
+        } finally {
+            automation.setRotation(android.app.UiAutomation.ROTATION_UNFREEZE)
+        }
+    }
     @Test fun syncRowsAndCursorRollbackTogether() {
         val cache = app.database.cache()
         val previousCursor = cache.get("meta", "cursor")?.json

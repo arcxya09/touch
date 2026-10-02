@@ -1,0 +1,250 @@
+{
+  "schema_version": 1,
+  "baseline": "v2.0.1:docs/quality/screenshots",
+  "candidate": "current:docs/quality/screenshots",
+  "pixel_threshold": 0,
+  "max_diff_ratio": 0.0,
+  "passed": false,
+  "expected_count": 14,
+  "candidate_count": 14,
+  "results": [
+    {
+      "file": "chat-dark-ready.png",
+      "passed": false,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "different",
+      "changed_pixels": 1657,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0006392746913580247,
+      "max_channel_difference": 79
+    },
+    {
+      "file": "chat-dark-recovery.png",
+      "passed": false,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "different",
+      "changed_pixels": 1657,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0006392746913580247,
+      "max_channel_difference": 79
+    },
+    {
+      "file": "chat-light-ready.png",
+      "passed": false,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "different",
+      "changed_pixels": 1655,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0006385030864197531,
+      "max_channel_difference": 80
+    },
+    {
+      "file": "chat-light-recovery.png",
+      "passed": false,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "different",
+      "changed_pixels": 1655,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0006385030864197531,
+      "max_channel_difference": 80
+    },
+    {
+      "file": "inbox-dark-ready.png",
+      "passed": false,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "different",
+      "changed_pixels": 8673,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0033460648148148147,
+      "max_channel_difference": 235
+    },
+    {
+      "file": "inbox-dark-recovery.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "inbox-light-ready.png",
+      "passed": false,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "different",
+      "changed_pixels": 8620,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0033256172839506173,
+      "max_channel_difference": 187
+    },
+    {
+      "file": "inbox-light-recovery.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "timer-dark-font200-320.png",
+      "passed": true,
+      "baseline_size": [
+        840,
+        1680
+      ],
+      "candidate_size": [
+        840,
+        1680
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 1411200,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "timer-dark-ready.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "timer-dark-recovery.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "timer-light-320.png",
+      "passed": true,
+      "baseline_size": [
+        840,
+        1680
+      ],
+      "candidate_size": [
+        840,
+        1680
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 1411200,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "timer-light-ready.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    },
+    {
+      "file": "timer-light-recovery.png",
+      "passed": true,
+      "baseline_size": [
+        1080,
+        2400
+      ],
+      "candidate_size": [
+        1080,
+        2400
+      ],
+      "status": "matched",
+      "changed_pixels": 0,
+      "total_pixels": 2592000,
+      "diff_ratio": 0.0,
+      "max_channel_difference": 0
+    }
+  ]
+}

@@ -30,6 +30,17 @@ class AppViewModel internal constructor(application: Application, val repository
     private val attempts = app.getSharedPreferences("gesture_attempts", Application.MODE_PRIVATE)
     private val updatePreferences = app.getSharedPreferences("update_checks", Application.MODE_PRIVATE)
     var includePrereleases by mutableStateOf(updatePreferences.getBoolean("include_prereleases", false)); private set
+    private val displayPreferences = app.getSharedPreferences("display_preferences", Application.MODE_PRIVATE)
+    var lockChatRotation by mutableStateOf(displayPreferences.getBoolean("lock_chat_rotation", false)); private set
+    var rotateImagePreview by mutableStateOf(displayPreferences.getBoolean("rotate_image_preview", false)); private set
+    fun setChatRotationLocked(value: Boolean) {
+        displayPreferences.edit().putBoolean("lock_chat_rotation", value).apply()
+        lockChatRotation = value
+    }
+    fun setImagePreviewRotation(value: Boolean) {
+        displayPreferences.edit().putBoolean("rotate_image_preview", value).apply()
+        rotateImagePreview = value
+    }
     private var pattern = ""
     private var syncJob: Job? = null
     private var resumeJob: Job? = null
@@ -172,6 +183,15 @@ class AppViewModel internal constructor(application: Application, val repository
             windowFirst = confirmed.minOfOrNull { it.seq }; windowLast = confirmed.maxOfOrNull { it.seq }
             browsingHistory = windowFirst != null
         }
+    }
+    val hasNewerMessages: Boolean
+        get() = (conversations.firstOrNull { it.id == conversationId }?.last?.seq ?: 0L) >
+            (messages.filterNot { it.pending }.maxOfOrNull { it.seq } ?: 0L)
+    fun reachedLatest() {
+        if (!browsingHistory || hasNewerMessages || messages.isEmpty()) return
+        // Release the frozen window only when this page actually includes the newest message.
+        // Keep the rendered rows and scroll position; no network request or page replacement.
+        pageBefore = Long.MAX_VALUE; windowFirst = null; windowLast = null; browsingHistory = false
     }
     fun latest() = action(Operation.Conversation) {
         val ticket = conversationTicket()

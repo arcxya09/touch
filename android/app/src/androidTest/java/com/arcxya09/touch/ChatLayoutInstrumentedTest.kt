@@ -23,6 +23,7 @@ import androidx.core.view.WindowCompat
 import androidx.test.espresso.Espresso
 import androidx.test.platform.app.InstrumentationRegistry
 import com.arcxya09.touch.ui.*
+import com.arcxya09.touch.data.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.junit.Assert.*
@@ -54,6 +55,7 @@ class ChatLayoutInstrumentedTest {
     @Test fun headerTextGroupAlignsWithActionsAndAttachmentSitsInsideInput() {
         var attachments = 0
         var diagnostics = 0
+        var draft by mutableStateOf("")
         compose.setContent {
             TouchTheme {
                 Column {
@@ -62,7 +64,7 @@ class ChatLayoutInstrumentedTest {
                             Icon(Icons.Outlined.Settings, "设置")
                         }
                     }
-                    ChatComposer("", false, true, {}, {}, { attachments++ })
+                    ChatComposer(draft, false, true, { draft = it }, {}, { attachments++ })
                 }
             }
         }
@@ -76,8 +78,53 @@ class ChatLayoutInstrumentedTest {
         val attachment = compose.onNodeWithContentDescription("添加图片或文件").fetchSemanticsNode().boundsInRoot
         assertTrue(attachment.left >= input.left && attachment.right <= input.right)
         assertTrue(attachment.top >= input.top && attachment.bottom <= input.bottom)
+        assertEquals(input.center.y, compose.onNodeWithContentDescription("发送").fetchSemanticsNode().boundsInRoot.center.y, 2f)
         compose.onNodeWithContentDescription("添加图片或文件").performClick()
         compose.runOnIdle { assertEquals(1, attachments) }
+        compose.runOnIdle { draft = "第一行\n第二行\n第三行" }
+        val multiline = compose.onNode(hasSetTextAction()).fetchSemanticsNode().boundsInRoot
+        assertEquals(multiline.center.y, compose.onNodeWithContentDescription("发送").fetchSemanticsNode().boundsInRoot.center.y, 2f)
+    }
+
+    @Test fun conversationTimeIsCenteredAcrossBothTextLines() {
+        val timestamp = java.time.LocalDate.now().atTime(12, 34).atZone(java.time.ZoneId.systemDefault()).toEpochSecond()
+        val message = ChatMessage("last", "conversation", "peer", "client", 10, "text", "最新消息", timestamp, null)
+        compose.setContent {
+            TouchTheme {
+                ConversationListContent(listOf(Conversation("conversation", Person("peer", "peer", "小林"), 3, 0, true, message)),
+                    true, ConnectionStatus.LIVE, false, false, avatar = { Spacer(Modifier.size(52.dp)) },
+                    onOpen = {}, onContacts = {}, onSettings = {}, onHide = {}, onDiagnostics = {}, onRetry = {}, onDelete = {})
+            }
+        }
+        val time = compose.onNodeWithText("12:34", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val menu = compose.onNodeWithContentDescription("与小林的会话操作").fetchSemanticsNode().boundsInRoot
+        assertEquals(menu.center.y, time.center.y, 2f)
+    }
+
+    @Test fun scrollingBackToBottomHidesJumpUnlessNewerMessagesAreOutsidePage() {
+        lateinit var scroll: LazyListState
+        lateinit var scope: CoroutineScope
+        var newer by mutableStateOf(false)
+        compose.setContent {
+            scroll = rememberLazyListState()
+            scope = rememberCoroutineScope()
+            val bottom by rememberChatAtBottom(scroll, browsingHistory = true)
+            TouchTheme {
+                Box(Modifier.fillMaxSize()) {
+                    LazyColumn(state = scroll) { items(60) { Text("历史 $it", Modifier.height(64.dp)) } }
+                    JumpToLatest(bottom, newer, false, onClick = {})
+                }
+            }
+        }
+        compose.onNodeWithTag("jump-to-latest").assertExists()
+        compose.runOnIdle { scope.launch { scroll.scrollToItem(59) } }
+        compose.waitForIdle()
+        compose.onNodeWithTag("jump-to-latest").assertDoesNotExist()
+        compose.runOnIdle { newer = true }
+        compose.onNodeWithTag("jump-to-latest").assertExists()
+        compose.runOnIdle { newer = false; scope.launch { scroll.scrollToItem(5) } }
+        compose.waitForIdle()
+        compose.onNodeWithTag("jump-to-latest").assertExists()
     }
 
     @Test fun keyboardMovesLatestMessageAndPreservesHistoryPosition() {

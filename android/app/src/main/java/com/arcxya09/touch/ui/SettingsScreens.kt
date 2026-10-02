@@ -41,6 +41,16 @@ import com.arcxya09.touch.Screen
             SettingItem("本机数据", if (vm.retentionEnabled) "保留最近 ${vm.retentionSeconds / 3600} 小时" else "定时销毁已关闭", Icons.Outlined.Storage) { vm.navigate(Screen.LocalData) }
             SettingItem("通知与后台运行", if (vm.alertOptions.enabled) "消息通知已开启" else "消息通知已关闭", Icons.Outlined.NotificationsNone) { vm.navigate(Screen.Notifications) }
         }
+        SectionLabel("屏幕旋转")
+        SettingsGroup {
+            Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+                ToggleSetting("聊天页锁定竖屏", checked = vm.lockChatRotation, onChange = vm::setChatRotationLocked)
+                Column(Modifier.padding(start = 20.dp)) {
+                    ToggleSetting("允许图片预览旋转", checked = vm.rotateImagePreview,
+                        enabled = vm.lockChatRotation, onChange = vm::setImagePreviewRotation)
+                }
+            }
+        }
         SectionLabel("Touch")
         SettingsGroup {
             SettingItem("打开番茄钟", icon = Icons.Outlined.Timer) { vm.navigate(Screen.Timer) }
@@ -137,10 +147,12 @@ import com.arcxya09.touch.Screen
         Text("给此刻，留一点空间。", color = MaterialTheme.colorScheme.onSurfaceVariant)
         SupportingNote("版本 ${BuildConfig.VERSION_NAME}")
         SettingsGroup {
-            ToggleSetting("包含预发布版本", "提前体验新版本；关闭时仅检查正式版。", vm.includePrereleases,
-                enabled = !vm.isWorking(Operation.Update), onChange = vm::setPrereleaseUpdates)
             SettingItem("检查更新", if (vm.includePrereleases) "正式版与预发布版本" else "仅正式版", icon = Icons.Outlined.SystemUpdate,
                 enabled = !vm.isWorking(Operation.Update)) { vm.checkUpdate() }
+            Column(Modifier.padding(start = 60.dp, end = 20.dp, bottom = 8.dp)) {
+                ToggleSetting("包含预发布版本", checked = vm.includePrereleases,
+                    enabled = !vm.isWorking(Operation.Update), onChange = vm::setPrereleaseUpdates)
+            }
             if (vm.updateApk != null && vm.update != null) SettingItem("继续安装已下载的更新", icon = Icons.Outlined.InstallMobile) { vm.showUpdate = true }
             SettingItem("连接诊断", "查看当前连接状态和脱敏诊断信息", Icons.Outlined.NetworkCheck) { vm.diagnostics() }
         }

@@ -2,12 +2,14 @@ package com.arcxya09.touch.ui
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 
 @Composable internal fun ChatHeader(title: String, back: () -> Unit, hide: () -> Unit, menu: @Composable () -> Unit) {
@@ -23,7 +25,7 @@ import androidx.compose.ui.unit.dp
         Column(Modifier.widthIn(max = 840.dp).fillMaxWidth()) {
             quote()
             if (!canSend) SupportingNote("当前无法发送，请先建立有效联系人关系。", Modifier.padding(20.dp))
-            else Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 12.dp), verticalAlignment = Alignment.Bottom) {
+            else Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(draft, edit, Modifier.weight(1f), placeholder = { Text("输入消息") },
                     leadingIcon = { IconButton(onClick = attach, enabled = !sending) { Icon(Icons.Outlined.Add, "添加图片或文件") } },
                     maxLines = 5, shape = MaterialTheme.shapes.large)
@@ -31,6 +33,17 @@ import androidx.compose.ui.unit.dp
                     Icon(Icons.Outlined.Send, "发送", tint = if (draft.isNotBlank() && !sending) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f))
                 }
             }
+        }
+    }
+}
+
+@Composable internal fun JumpToLatest(atBottom: Boolean, hasIncoming: Boolean, loading: Boolean,
+    modifier: Modifier = Modifier, onClick: () -> Unit) {
+    if (!atBottom || hasIncoming) Surface(onClick = onClick, enabled = !loading,
+        modifier = modifier.padding(16.dp).size(48.dp).testTag("jump-to-latest"),
+        shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 2.dp) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(Icons.Outlined.KeyboardArrowDown, if (hasIncoming) "有新消息，返回最新" else "返回最新消息")
         }
     }
 }

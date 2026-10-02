@@ -56,7 +56,6 @@ import java.time.format.DateTimeFormatter
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                     Text(conversation.peer.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    conversation.last?.let { SupportingNote(conversationTime(it.createdAt)) }
                                 }
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text(conversation.last?.let { when (it.kind) { "recalled" -> "消息已撤回"; "text" -> it.text; "image" -> "[图片]"; else -> "[文件] ${it.file?.name.orEmpty()}" } } ?: "开始聊天",
@@ -64,6 +63,7 @@ import java.time.format.DateTimeFormatter
                                     if (conversation.unread > 0) Badge { Text(if (conversation.unread > 99) "99+" else conversation.unread.toString()) }
                                 }
                             }
+                            conversation.last?.let { SupportingNote(conversationTime(it.createdAt)) }
                             Box {
                                 IconButton(onClick = { menu = true }) { Icon(Icons.Outlined.MoreHoriz, "与${conversation.peer.name}的会话操作") }
                                 DropdownMenu(menu, { menu = false }) {

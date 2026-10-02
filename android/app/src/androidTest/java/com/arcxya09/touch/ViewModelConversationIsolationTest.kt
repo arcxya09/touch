@@ -64,6 +64,14 @@ class ViewModelConversationIsolationTest {
                     assertEquals("current A", vm.messages.single().text)
                     assertEquals("current draft A", vm.draftText)
                     assertTrue("The new A load must retain its own operation state", vm.isWorking(Operation.Conversation))
+                    val rows = vm.messages
+                    val request = vm.scrollRequest
+                    vm.holdHistory()
+                    assertTrue(vm.browsingHistory)
+                    vm.reachedLatest()
+                    assertFalse("Returning to the newest row resumes following", vm.browsingHistory)
+                    assertSame("Returning must not replace the displayed page", rows, vm.messages)
+                    assertEquals("Returning must not force another scroll", request, vm.scrollRequest)
                 }
                 assertEquals("The isolation test must make no HTTP requests", 0, server.requestCount)
             } finally {

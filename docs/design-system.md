@@ -99,3 +99,15 @@ adb -s emulator-5562 shell am instrument -w -e class com.arcxya09.touch.DesignSy
 按用户反馈恢复原版暖色与红色番茄图标，修正标题组对齐、输入框内加号和分隔线，并增加底部消息跟随键盘的处理。14 张当前基线均重新采集并逐张目视复核；这是明确要求的视觉变更，不声称与旧主题零差异。原始截图仍可从 v2.0.0 标签获取，前后摘要及设备测试结果见 [核验记录](quality/evidence/ui-feedback-20261002/verification.json)。
 
 输入法回归使用 API 36.1 模拟器中的 Gboard，断言展开时最新消息上移且完整可见、收起后回到原位置，阅读历史时首条可见消息与偏移不变。截图仅捕获应用 Compose 内容，所以键盘所在区域不包含键盘像素：[收起](quality/evidence/ui-feedback-20261002/chat-keyboard-hidden.png)、[展开](quality/evidence/ui-feedback-20261002/chat-keyboard-visible.png)。该结果不替代国内真机验收。
+
+### 第二轮布局与旋转反馈
+
+会话时间移到名称与摘要组成的双行区域右侧，与整行纵向居中；发送按钮与输入框中心对齐，适用于多行输入。手动滑回最新消息时解除历史窗口冻结，隐藏跳转按钮；当前页之外仍有新消息时保留入口。解除冻结不触发网络加载，也不立即替换当前行或强制滚动。
+
+设置首页提供“聊天页锁定竖屏”，其下缩进“允许图片预览旋转”。两个选项默认关闭并在本机持久保存。开启锁定后聊天页及附件预览保持竖屏；开启图片例外后仅图片预览跟随系统旋转偏好，文档预览继续锁定，返回聊天恢复竖屏。其他页面保持系统默认行为。Compose 直接处理方向与窗口尺寸变化，不将敏感状态写入保存状态；实际后台及显式重建仍执行隐私锁定。
+
+该偏好不能覆盖操作系统的大屏限制：Android 16/17 对部分大屏设备忽略方向锁定请求，页面仍应自适应窗口。[Android 官方说明](https://developer.android.com/develop/adaptive-apps/guides/app-orientation-aspect-ratio-resizability)。
+
+“包含预发布版本”置于“检查更新”行之后，起始缩进 60 dp，右边距 20 dp；仅显示标题与开关，移除说明文字。更新通道默认值与安装校验规则不变。
+
+本轮验证：34 项 JVM 测试、API 36.1 模拟器 16 项设备测试通过；Lint 0 错误、31 警告、4 提示。14 张截图中 8 张逐像素不变，6 张对应时间及发送键位置变化，逐张复核后更新基线；保留[更新前差异](quality/evidence/ui-feedback-round2-20261002/comparison-before-update.json)和[测试记录](quality/evidence/ui-feedback-round2-20261002/verification.json)。模拟器启动时的 System UI 无响应弹窗通过“等待”解除，完整测试运行随后通过。真实图片附件的旋转全流程、国内真机及其他 API 本轮尚未实测。

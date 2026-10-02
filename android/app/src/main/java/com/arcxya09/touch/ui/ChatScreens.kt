@@ -59,16 +59,16 @@ import java.time.format.DateTimeFormatter
     val dragging by scroll.interactionSource.collectIsDraggedAsState()
     val lastId = vm.messages.lastOrNull()?.id
     val atBottom by rememberChatAtBottom(scroll, vm.browsingHistory)
-    var newMessages by remember { mutableStateOf(false) }
     val loading = vm.isWorking(Operation.Conversation)
     val sending = vm.isWorking(Operation.Send) || vm.isWorking(Operation.Attachment) || vm.isWorking(Operation.Session)
-    LaunchedEffect(atBottom) { if (atBottom) newMessages = false }
     LaunchedEffect(dragging, atBottom) { if (dragging && !atBottom) vm.holdHistory() }
-    val hasIncoming = (conversation?.last?.seq ?: 0L) > (vm.messages.filterNot { it.pending }.lastOrNull()?.seq ?: Long.MAX_VALUE)
+    val hasIncoming = vm.hasNewerMessages
+    LaunchedEffect(atBottom, hasIncoming, loading, vm.browsingHistory) {
+        if (atBottom && !hasIncoming && !loading) vm.reachedLatest()
+    }
     LaunchedEffect(lastId) {
         if (vm.messages.isNotEmpty()) {
             if (atBottom && !vm.browsingHistory) scroll.animateScrollToItem(vm.messages.size + 1)
-            else newMessages = true
         }
     }
     LaunchedEffect(vm.scrollRequest) {
@@ -111,13 +111,7 @@ import java.time.format.DateTimeFormatter
                 item(key = "chat-bottom") { Spacer(Modifier.height(1.dp)) }
             }
             if (vm.messages.isEmpty() && !loading) EmptyState("对话从这里开始", "发一条消息，分享此刻。", modifier = Modifier.align(Alignment.Center))
-            if (!atBottom || newMessages || hasIncoming || vm.browsingHistory) {
-                Surface(onClick = { vm.latest(); newMessages = false }, enabled = !loading,
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp).size(48.dp).testTag("jump-to-latest"),
-                    shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 2.dp) {
-                    Box(contentAlignment = Alignment.Center) { Icon(Icons.Outlined.KeyboardArrowDown, if (newMessages || hasIncoming) "有新消息，返回最新" else "返回最新消息") }
-                }
-            }
+            JumpToLatest(atBottom, hasIncoming, loading, Modifier.align(Alignment.BottomEnd), vm::latest)
         }
         vm.transfer?.let { progress ->
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {

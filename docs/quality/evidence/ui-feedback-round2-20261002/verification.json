@@ -1,0 +1,57 @@
+{
+  "date": "2026-10-02",
+  "jvm": {
+    "tests": 34,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "instrumented": {
+    "tests": 16,
+    "failures": 0,
+    "skipped": 0,
+    "device": "Touch_Quality API 36.1, 1080x2400, 420dpi"
+  },
+  "lint": {
+    "errors": 0,
+    "warnings": 31,
+    "hints": 4
+  },
+  "screenshots": {
+    "reviewed_changes": {
+      "chat-dark-ready.png": {
+        "before": "dc2d6ba0ec9ee682e81fc6d5abe6371fc6dc53f47520260544b9ce825812b4f2",
+        "after": "a942980ebcb85188e52278b8c4cfc252f229f4893794cd8bbc58da508e640bb0"
+      },
+      "chat-dark-recovery.png": {
+        "before": "fd892aa8ffc64626f1748577fca8229b276b98a7ab480968dee34257297de092",
+        "after": "4b3fb340c6af0994eb1ce0c10edfd1d44d4c0f0c8c5d10c6c765d1d2a3703bfb"
+      },
+      "chat-light-ready.png": {
+        "before": "04696bb765a57e5749c23a5222930b62fa91a771f6b98d22d93a240c806e673e",
+        "after": "fcf45cc9c595b971c2109822af52874023b286ff68a8b7995e0457213438ee86"
+      },
+      "chat-light-recovery.png": {
+        "before": "8cf5795b0049630c9d908be2d896bd26f9001532b55f0dd7ff6ac34f15d1266d",
+        "after": "3e53d95cfb0c4d7f151d452dc053a2fe03c3dc3e8d6a7208ff57fc03b8b8c7b1"
+      },
+      "inbox-dark-ready.png": {
+        "before": "08262e4f0f46d899b2c93e81e4bea4a3767efe5f1df287c4a667ddd2bcf89de4",
+        "after": "a1e08df46f8d0ac1095480dcd196174bf333d2f5845ef854dff6bb0f21bde2bc"
+      },
+      "inbox-light-ready.png": {
+        "before": "f8c8683cfc31324400b97010d8b245963f749ee57438ce473a71097441ad44a2",
+        "after": "898f544edd72240f1972896d2b35201bcf3aadbe77ffa88e96776fc06cabbd40"
+      }
+    },
+    "unchanged": 8
+  },
+  "environment": "Emulator startup System UI ANR dialog dismissed with Wait before keyboard and rotation assertions; complete test run passed.",
+  "not_verified": [
+    "domestic physical devices",
+    "API 29/31/33/37 for this change",
+    "actual historical signed APK upgrade",
+    "image preview full flow with real attachment"
+  ],
+  "published": false
+}

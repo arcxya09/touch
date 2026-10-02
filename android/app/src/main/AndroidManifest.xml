@@ -10,7 +10,8 @@
     <application android:name=".TouchApp" android:label="Touch番茄钟" android:icon="@drawable/ic_touch_logo" android:roundIcon="@drawable/ic_touch_logo"
         android:allowBackup="false" android:fullBackupContent="false" android:dataExtractionRules="@xml/data_extraction_rules"
         android:usesCleartextTraffic="false" android:theme="@style/Theme.Touch" android:supportsRtl="true">
-        <activity android:name=".MainActivity" android:exported="true" android:windowSoftInputMode="adjustResize">
+        <activity android:name=".MainActivity" android:exported="true" android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout">
             <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
         </activity>
         <receiver android:name=".timer.TimerReceiver" android:exported="false">
