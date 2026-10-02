@@ -64,14 +64,13 @@ jobs:
           heap-size: ${{ matrix.api == '37.0' && '576M' || '' }}
           disk-size: ${{ matrix.api == '37.0' && '6144M' || '' }}
           disable-animations: true
-          pre-emulator-launch-script: |
-            mkdir -p "$RUNNER_TEMP/touch-device-diagnostics"
-            "$ANDROID_HOME/emulator/emulator" -version > "$RUNNER_TEMP/touch-device-diagnostics/emulator-version.txt" 2>&1
-            "$ANDROID_HOME/emulator/emulator" -help-gpu > "$RUNNER_TEMP/touch-device-diagnostics/emulator-gpu-help.txt" 2>&1
           # Preserve guest diagnostics without changing the boot timeout or test gates.
           # API 37 uses the supported software selector; swiftshader_indirect is deprecated.
+          # Its mapper requires DMA readback; LOG_ALWAYS_FATAL_IF(!hasReadColorBufferDma)
+          # aborts when either required host feature is absent. Keep older images unchanged.
           emulator-options: >-
             -no-window -gpu ${{ matrix.api == '37.0' && 'software' || 'swiftshader_indirect' }} -no-snapshot -noaudio -no-boot-anim
+            ${{ matrix.api == '37.0' && '-feature GLDirectMem,HasSharedSlotsHostMemoryAllocator' || '' }}
             ${{ matrix.api == '37.0' && '-show-kernel -verbose > /tmp/touch-emulator-boot.log 2>&1' || '' }}
           script: |
             python scripts/android_device_gate.py --diagnostics "$RUNNER_TEMP/touch-device-diagnostics" -- ./android/gradlew -p android :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.arcxya09.touch.PrivacyInstrumentedTest,com.arcxya09.touch.LocalStorageInstrumentedTest,com.arcxya09.touch.ReplyStorageTest,com.arcxya09.touch.LocalMessageActionsTest,com.arcxya09.touch.NotificationNavigationTest,com.arcxya09.touch.DataBoundaryTest,com.arcxya09.touch.VisibilityMigrationTest,com.arcxya09.touch.ExportRecoveryTest,com.arcxya09.touch.ViewModelConversationIsolationTest,com.arcxya09.touch.AttachmentDraftInstrumentedTest,com.arcxya09.touch.DesignSystemInstrumentedTest -Pandroid.testInstrumentationRunnerArguments.touchTestUser=verify_local_ci -Pandroid.testInstrumentationRunnerArguments.touchTestPassword=test-only-local-123 --stacktrace

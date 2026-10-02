@@ -68,6 +68,13 @@ def wait_for_framework(adb: list[str], destination: Path, timeout: float = 120, 
 
 
 def collect_diagnostics(adb: list[str], destination: Path) -> None:
+    avd_home = Path(os.environ.get("ANDROID_AVD_HOME") or str(Path.home() / ".android" / "avd"))
+    for name, source in (("avd-target.txt", avd_home / "test.ini"),
+                         ("avd-config.txt", avd_home / "test.avd" / "config.ini")):
+        try:
+            (destination / name).write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+        except OSError as error:
+            (destination / name).write_text(f"AVD metadata unavailable: {error}\n", encoding="utf-8")
     commands = (
         ("device-state.txt", ["get-state"]),
         ("properties.txt", ["shell", "getprop"]),
