@@ -17,6 +17,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import org.json.JSONObject
+import org.json.JSONArray
 import java.io.File
 import java.io.ByteArrayOutputStream
 
@@ -25,37 +26,52 @@ class Updater(activity: Activity, private val api: Api) {
     private val activityReference = java.lang.ref.WeakReference(activity)
     private val preferences = activity.getSharedPreferences("update_checks", Activity.MODE_PRIVATE)
     fun due(): Boolean = !BuildConfig.DEBUG && System.currentTimeMillis() >= preferences.getLong("next_check", 0)
-    suspend fun check(): UpdateManifest? = withContext(Dispatchers.IO) {
+    suspend fun check(includePrereleases: Boolean = false): UpdateManifest? = withContext(Dispatchers.IO) {
         check(!BuildConfig.DEBUG) { "调试版本不使用正式更新通道" }
         try {
-            val request = Request.Builder().url(UpdateManifest.URL).tag(this@Updater).header("Accept", "application/json").build()
-            val manifest = api.execute(request).use { response ->
-                check(response.isSuccessful) { if (response.code == 404) "暂无可用的正式更新清单" else "更新源暂不可用（${response.code}）" }
-                val body = response.body ?: error("更新清单为空")
-                check(body.contentLength() <= 65536) { "更新清单过大" }
-                val bytes = body.byteStream().use { input ->
-                    val output = ByteArrayOutputStream()
-                    val buffer = ByteArray(4096)
-                    while (output.size() <= 65536) {
-                        val count = input.read(buffer, 0, minOf(buffer.size, 65537 - output.size()))
-                        if (count < 0) break
-                        output.write(buffer, 0, count)
-                    }
-                    output.toByteArray()
+            val manifests = mutableListOf<UpdateManifest>()
+            val stable = readJson(UpdateManifest.URL, 65536, allowMissing = includePrereleases)
+            if (stable != null) manifests += UpdateManifest.parse(JSONObject(stable))
+            if (includePrereleases) {
+                val releases = JSONArray(checkNotNull(readJson(UpdateChannel.RELEASES_URL, 2 * 1024 * 1024)))
+                for (tag in UpdateChannel.prereleaseTags(releases)) {
+                    currentCoroutineContext().ensureActive()
+                    val url = "https://github.com/arcxya09/touch/releases/download/$tag/update.json"
+                    val manifest = UpdateManifest.parse(JSONObject(checkNotNull(readJson(url, 65536))))
+                    require(manifest.releaseTag == tag) { "预发布清单与版本标签不一致" }
+                    manifests += manifest.copy(prerelease = true)
                 }
-                check(bytes.size <= 65536) { "更新清单过大" }
-                UpdateManifest.parse(JSONObject(bytes.toString(Charsets.UTF_8)))
             }
+            val result = UpdateChannel.select(manifests, BuildConfig.VERSION_CODE.toLong(), Build.VERSION.SDK_INT)
             preferences.edit().putLong("next_check", System.currentTimeMillis() + 86400000).putInt("failures", 0).apply()
-            if (manifest.versionCode <= BuildConfig.VERSION_CODE) return@withContext null
-            require(manifest.minSdk <= Build.VERSION.SDK_INT) { "新版本暂不兼容当前系统" }
-            manifest
+            result
         } catch (error: Exception) {
             if (error is CancellationException) throw error
             val failures = (preferences.getInt("failures", 0) + 1).coerceAtMost(6)
             preferences.edit().putInt("failures", failures)
                 .putLong("next_check", System.currentTimeMillis() + (900000L shl (failures - 1))).apply()
             throw error
+        }
+    }
+    private suspend fun readJson(url: String, limit: Int, allowMissing: Boolean = false): String? {
+        val request = Request.Builder().url(url).tag(this).header("Accept", "application/json").build()
+        return api.execute(request).use { response ->
+            if (allowMissing && response.code == 404) return@use null
+            check(response.isSuccessful) { if (response.code == 404) "暂无可用的更新清单" else "更新源暂不可用（${response.code}）" }
+            val body = response.body ?: error("更新信息为空")
+            check(body.contentLength() <= limit) { "更新信息过大" }
+            val bytes = body.byteStream().use { input ->
+                val output = ByteArrayOutputStream()
+                val buffer = ByteArray(4096)
+                while (output.size() <= limit) {
+                    val count = input.read(buffer, 0, minOf(buffer.size, limit + 1 - output.size()))
+                    if (count < 0) break
+                    output.write(buffer, 0, count)
+                }
+                output.toByteArray()
+            }
+            check(bytes.size <= limit) { "更新信息过大" }
+            bytes.toString(Charsets.UTF_8)
         }
     }
     suspend fun download(manifest: UpdateManifest, progress: (Float) -> Unit): File = withContext(Dispatchers.IO) {

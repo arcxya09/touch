@@ -58,11 +58,11 @@ import java.time.format.DateTimeFormatter
     val scroll = rememberLazyListState()
     val dragging by scroll.interactionSource.collectIsDraggedAsState()
     val lastId = vm.messages.lastOrNull()?.id
-    var atBottom by remember { mutableStateOf(true) }
+    val atBottom by rememberChatAtBottom(scroll, vm.browsingHistory)
     var newMessages by remember { mutableStateOf(false) }
     val loading = vm.isWorking(Operation.Conversation)
     val sending = vm.isWorking(Operation.Send) || vm.isWorking(Operation.Attachment) || vm.isWorking(Operation.Session)
-    LaunchedEffect(scroll) { snapshotFlow { !scroll.canScrollForward }.collect { atBottom = it; if (it) newMessages = false } }
+    LaunchedEffect(atBottom) { if (atBottom) newMessages = false }
     LaunchedEffect(dragging, atBottom) { if (dragging && !atBottom) vm.holdHistory() }
     val hasIncoming = (conversation?.last?.seq ?: 0L) > (vm.messages.filterNot { it.pending }.lastOrNull()?.seq ?: Long.MAX_VALUE)
     LaunchedEffect(lastId) {

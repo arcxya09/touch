@@ -84,7 +84,7 @@ import com.arcxya09.touch.data.ConnectionStatus
 @Composable private fun UpdateDialog(vm: AppViewModel) {
     val update = vm.update ?: return
     AlertDialog(onDismissRequest = { if (vm.updateProgress == null) vm.showUpdate = false },
-        title = { Text("Touch ${update.versionName}") }, text = {
+        title = { Text("Touch ${update.versionName}${if (update.prerelease) " · 预发布" else ""}") }, text = {
             Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 SupportingNote("${"%.1f".format(update.apkSize / 1048576.0)} MiB")
                 Text(update.changelog)

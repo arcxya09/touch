@@ -19,14 +19,14 @@ import androidx.compose.ui.unit.dp
 
 @Composable internal fun ChatComposer(draft: String, sending: Boolean, canSend: Boolean,
     edit: (String) -> Unit, send: () -> Unit, attach: () -> Unit, quote: @Composable ColumnScope.() -> Unit = {}) {
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Column(Modifier.widthIn(max = 840.dp).fillMaxWidth()) {
             quote()
             if (!canSend) SupportingNote("当前无法发送，请先建立有效联系人关系。", Modifier.padding(20.dp))
             else Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 12.dp), verticalAlignment = Alignment.Bottom) {
-                IconButton(onClick = attach, enabled = !sending) { Icon(Icons.Outlined.AddCircleOutline, "添加图片或文件") }
-                OutlinedTextField(draft, edit, Modifier.weight(1f), placeholder = { Text("输入消息") }, maxLines = 5, shape = MaterialTheme.shapes.large)
+                OutlinedTextField(draft, edit, Modifier.weight(1f), placeholder = { Text("输入消息") },
+                    leadingIcon = { IconButton(onClick = attach, enabled = !sending) { Icon(Icons.Outlined.Add, "添加图片或文件") } },
+                    maxLines = 5, shape = MaterialTheme.shapes.large)
                 IconButton(onClick = send, enabled = draft.isNotBlank() && !sending) {
                     Icon(Icons.Outlined.Send, "发送", tint = if (draft.isNotBlank() && !sending) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f))
                 }

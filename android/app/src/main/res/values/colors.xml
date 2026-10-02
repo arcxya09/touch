@@ -1,5 +1,4 @@
 <resources>
-    <color name="touch_window_background">#F8F7F2</color>
-    <color name="touch_accent">#38634A</color>
-    <color name="touch_launcher_background">#F8F7F2</color>
+    <color name="touch_window_background">#F7F5EF</color>
+    <color name="touch_accent">#396B4B</color>
 </resources>

@@ -3,7 +3,8 @@ package com.arcxya09.touch.update
 import org.json.JSONObject
 
 data class UpdateManifest(val versionCode: Long, val versionName: String, val packageName: String,
-    val minSdk: Int, val releaseTag: String, val apkAssetName: String, val apkSize: Long, val sha256: String, val changelog: String) {
+    val minSdk: Int, val releaseTag: String, val apkAssetName: String, val apkSize: Long, val sha256: String, val changelog: String,
+    val prerelease: Boolean = false) {
     val downloadUrl get() = "https://github.com/arcxya09/touch/releases/download/$releaseTag/$apkAssetName"
     fun newerThan(installed: Long, sdk: Int) = versionCode > installed && minSdk <= sdk
     companion object {

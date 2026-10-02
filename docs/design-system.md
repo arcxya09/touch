@@ -1,6 +1,6 @@
 # Touch 设计系统与视觉基线
 
-本轮设计采用森林绿、暖中性色和系统中文字体，强调清晰层级、稳定布局、及时且局部的反馈。外层番茄钟、隐藏入口和隐私边界保持原有产品定位。解锁、退后台及安全遮蔽立即切换，不用过渡动画延迟门控；普通计时语义不暴露隐藏入口。
+主题恢复 1.0.14 的奶油暖底色、森林绿与番茄红，使用系统中文字体，强调清晰层级、稳定布局、及时且局部的反馈。外层番茄钟、隐藏入口和隐私边界保持原有产品定位。解锁、退后台及安全遮蔽立即切换，不用过渡动画延迟门控；普通计时语义不暴露隐藏入口。
 
 ## 主题角色
 
@@ -8,18 +8,18 @@
 
 | 用途 / 角色 | 浅色 | 深色 |
 | --- | --- | --- |
-| 页面底色 `background` / `surface` | `#F8F7F2` | `#151C17` |
-| 主文字 `onSurface` | `#232D26` | `#E4E9DF` |
+| 页面底色 `background` / `surface` | `#F7F5EF` | `#141D17` |
+| 主文字 `onSurface` | `#25352B` | `#E4E9DF` |
 | 辅助文字 `onSurfaceVariant` | `#586158` | `#B8C3B6` |
-| 主操作、进度 `primary` | `#38634A` | `#A6D2AE` |
+| 主操作、进度 `primary` | `#396B4B` | `#A2D1A8` |
 | 主操作文字 `onPrimary` | `#FFFFFF` | `#153923` |
-| 分组背景 `surfaceContainerLow` | `#F3F3ED` | `#1C241E` |
-| 发出消息 `primaryContainer` | `#DCEADD` | `#2C4E36` |
-| 发出消息文字 `onPrimaryContainer` | `#173C25` | `#DCEADD` |
-| 细边界 `outlineVariant` | `#D6DDD2` | `#414D42` |
+| 分组背景 `surfaceContainerLow` | `#F3EFE7` | `#1C241E` |
+| 发出消息 `primaryContainer` | `#DDEBD9` | `#304E35` |
+| 发出消息文字 `onPrimaryContainer` | `#173C25` | `#DDEBD9` |
+| 细边界 `outlineVariant` | `#DCD5C8` | `#414D42` |
 | 错误、破坏性操作 `error` | `#AD3A35` | `#FFB4AA` |
 
-正文与背景的计算对比度为浅色 13.27:1、深色 14.06:1；辅助文字为 5.99:1、9.52:1。此结果针对上述纯色组合，不能替代透明叠层、图片上文字或实际设备显示的检查。状态同时使用文案和动作说明，不只依赖颜色。
+正文与背景的计算对比度为浅色 11.87:1、深色 13.98:1；辅助文字为 5.90:1、9.46:1。此结果针对上述纯色组合，不能替代透明叠层、图片上文字或实际设备显示的检查。状态同时使用文案和动作说明，不只依赖颜色。
 
 ## 排版、尺寸与触达
 
@@ -27,7 +27,7 @@
 - 常用样式为页面标题 `21sp / 30sp`、小节标题 `17sp / 26sp`、正文 `16sp / 26sp`、次级正文 `14sp / 22sp`、说明 `12sp / 20sp`，分别表示字号与行高。时间等次要标签可用 `11sp / 16sp`。
 - 计时数字使用等宽字体，以圆盘尺寸计算视觉字号；字号仅随系统字体设置适度增大，避免非线性缩放挤压数字。阶段和操作文字仍正常缩放，并自动换行。
 - 常用间距为 4、8、12、16、20、24、32dp；圆角角色为 6、10、16、24、28dp。设置/表单页左右留白 24dp，最大内容宽 640dp；会话与聊天最大宽 840dp。
-- 可点击图标和主操作遵循至少 48dp 的触达目标；状态副标题也有独立点击区域。设置开关整行可操作，只提供一个开关语义节点，避免正文与开关重复聚焦。
+- 可点击图标和主操作遵循至少 48dp 的触达目标；标题与状态组合为至少 48dp 的点击区域，文字组与右侧操作垂直居中。设置开关整行可操作，只提供一个开关语义节点，避免正文与开关重复聚焦。
 - 小屏、大字页面优先滚动和重排。隐藏图案层继续使用原交互，不增加可被读屏发现的隐藏点位描述。
 
 ## 组件约定
@@ -39,7 +39,7 @@
 | `SettingsGroup`、`SettingItem`、`ToggleSetting` | 设置归并为个人资料、密码、隐私与安全、本机数据、通知与后台、关于与更新。说明写清范围；开关即刻反馈。 |
 | `EmptyState` | 区分首次加载、空内容和同步失败。可恢复失败提供明确重试；已有缓存继续可读。 |
 | `ConversationListContent` | 会话行统一头像、标题、预览、时间和未读层级；行内菜单处理会话动作。 |
-| `ChatHeader`、`ChatBubbleSurface`、`ChatComposer` | 输入区稳定留在底部，消息宽度限制在可读范围；发送中、失败、附件传输在对应区域反馈。 |
+| `ChatHeader`、`ChatBubbleSurface`、`ChatComposer` | 附件加号位于输入框内左侧；输入区与消息区不设分割线。位于底部时，最新消息随输入法及输入框高度变化保持可见；阅读历史时保留位置。消息宽度限制在可读范围；发送中、失败、附件传输在对应区域反馈。 |
 | `PendingMessageActions` | 失败消息就地重试或本机删除，不用全局阻塞框覆盖聊天。 |
 | `Confirm` | 写出具体动作，如“清空本地记录”“撤回消息”，并说明范围；破坏性确认使用错误色。 |
 | 表单 | 就地校验、密码显隐、输入法动作、提交工作态；编辑页返回时处理未保存修改，不把密码写入保存状态。 |
@@ -82,7 +82,7 @@ adb -s emulator-5562 shell am instrument -w -e class com.arcxya09.touch.DesignSy
 | 消息列表 | [PNG](quality/screenshots/inbox-light-ready.png) | [PNG](quality/screenshots/inbox-dark-ready.png) | [PNG](quality/screenshots/inbox-light-recovery.png) | [PNG](quality/screenshots/inbox-dark-recovery.png) |
 | 聊天 | [PNG](quality/screenshots/chat-light-ready.png) | [PNG](quality/screenshots/chat-dark-ready.png) | [PNG](quality/screenshots/chat-light-recovery.png) | [PNG](quality/screenshots/chat-dark-recovery.png) |
 
-另有 [320dp 浅色计时页](quality/screenshots/timer-light-320.png) 和 [320dp 深色 200% 字体计时页](quality/screenshots/timer-dark-font200-320.png)。14 张基线均已人工查看，没有发现关键文本重叠或主操作被裁切。小屏测试已实际点击开始；像素截图本身不能证明其他交互均可用。
+另有 [320dp 浅色计时页](quality/screenshots/timer-light-320.png) 和 [320dp 深色 200% 字体计时页](quality/screenshots/timer-dark-font200-320.png)。14 张基线均已逐张目视复核，没有发现关键文本重叠或主操作被裁切。小屏测试已实际点击开始；像素截图本身不能证明其他交互均可用。
 
 ### 小屏基线修正记录
 
@@ -93,3 +93,9 @@ adb -s emulator-5562 shell am instrument -w -e class com.arcxya09.touch.DesignSy
 复核静态小屏图确认没有涟漪、文字重叠或按钮裁切；按钮背景分别为主题主色 `#38634A`、`#A6D2AE`，与原图的变化仍只在按钮内。经审查，仅以第二轮 `.local/quality-screenshots-v2-static2` 的 `timer-light-320.png`、`timer-dark-font200-320.png` 更新基线，其余 12 张不变；比较容差保持 0。此更新修正采集的不确定性，不掩盖布局回归。
 
 比较截图时保持系统镜像、密度、字体比例、Compose 依赖及数据一致。修改共享组件后重新生成全组截图并审查差异，确认后再更新基线。不同厂商字体、横屏窗口、真实键盘、TalkBack 连续操作及安全窗口切换仍按 [品质升级验收](quality-upgrade.md) 的真机项目记录，不以这些静态样板替代。
+
+### 2026-10-02 界面反馈调整
+
+按用户反馈恢复原版暖色与红色番茄图标，修正标题组对齐、输入框内加号和分隔线，并增加底部消息跟随键盘的处理。14 张当前基线均重新采集并逐张目视复核；这是明确要求的视觉变更，不声称与旧主题零差异。原始截图仍可从 v2.0.0 标签获取，前后摘要及设备测试结果见 [核验记录](quality/evidence/ui-feedback-20261002/verification.json)。
+
+输入法回归使用 API 36.1 模拟器中的 Gboard，断言展开时最新消息上移且完整可见、收起后回到原位置，阅读历史时首条可见消息与偏移不变。截图仅捕获应用 Compose 内容，所以键盘所在区域不包含键盘像素：[收起](quality/evidence/ui-feedback-20261002/chat-keyboard-hidden.png)、[展开](quality/evidence/ui-feedback-20261002/chat-keyboard-visible.png)。该结果不替代国内真机验收。

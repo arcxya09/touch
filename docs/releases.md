@@ -42,13 +42,15 @@ Finalize 不重新构建或替换附件。发布失败后仍须提供有效的�
 gh release edit v2.0.0 --repo arcxya09/touch --verify-tag --prerelease --draft=false --latest=false
 ```
 
-执行前保存 `/repos/arcxya09/touch/releases/latest` 返回的标签和客户端更新 URL 返回的清单；执行后确认候选 `draft=false`、`prerelease=true`、三份附件大小和摘要不变，且 Latest 标签及客户端清单仍指向原稳定版。客户端固定读取 `https://github.com/arcxya09/touch/releases/latest/download/update.json`，不会遍历预发布列表；GitHub 的 [Latest 接口排除草稿及预发布](https://docs.github.com/en/rest/releases/releases#get-the-latest-release)。
+执行前保存 `/repos/arcxya09/touch/releases/latest` 返回的标签和客户端更新 URL 返回的清单；执行后确认候选 `draft=false`、`prerelease=true`、三份附件大小和摘要不变，且 Latest 标签及客户端清单仍指向原稳定版。默认稳定通道及 2.0.0 旧客户端读取 `https://github.com/arcxya09/touch/releases/latest/download/update.json`；GitHub 的 [Latest 接口排除草稿及预发布](https://docs.github.com/en/rest/releases/releases#get-the-latest-release)。
 
 普通分支和 PR 只运行 CI，不接触签名 Secrets。标签事件只构建经核验的草稿；经明确授权可公开预发布供验收，稳定版及 Latest 仍由独立验收后的 Finalize 执行。仓库管理员应限制有权推送标签的人员。
 
 设备 CI 配置 API 29、31、33、36、37.0 的隔离模拟器，使用本地 fixture 和明确的测试类列表；空结果、失败及跳过都会阻断。37.0 使用 [官方 SDK 仓库](https://dl.google.com/android/repository/sys-img/google_apis/sys-img2-3.xml) 公布的 `system-images;android-37.0;google_apis;x86_64`。矩阵配置和镜像存在不代表各设备测试已经执行成功，以对应提交的工作流记录为准。
 
 ## 客户端行为
+
+“关于与更新”的“包含预发布版本”默认关闭，选择在本机持久保存。开启后，手动和自动检查均在稳定清单之外检查仓库最近 100 个 Release 中已公开、带已上传 `update.json` 的预发布；草稿不参与。清单 URL 由固定仓库与合法版本标签构造，不采用外部附件地址。仅从系统兼容且 versionCode 高于已安装版本的清单中选择最大值，同版本优先正式版，不按发布时间降级。预发布提示有明确标记，APK 包名、版本、大小、哈希与签名校验保持一致。切换通道清除旧提示与检查退避；下载期间暂时禁用开关。
 
 应用在允许的前台界面每 24 小时自动检查一次，失败退避；设置中可手动检查。隐私模式必须先解锁，番茄钟界面不发起检查也不弹提示。
 

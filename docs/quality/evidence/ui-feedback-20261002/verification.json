@@ -1,0 +1,94 @@
+{
+  "date": "2026-10-02",
+  "baselineSourceCommit": "82514685af01ab23d99b855b8a8bb11675d1681e",
+  "intentionalBaselineChange": "User requested warm original theme, aligned header and revised composer; all 14 screenshots visually reviewed. No pixel-equality claim against the previous theme.",
+  "device": "Android emulator API 36.1, Gboard",
+  "deviceTests": {
+    "passed": 6,
+    "failed": 0
+  },
+  "unitTests": {
+    "passed": 32,
+    "failed": 0
+  },
+  "lintErrors": 0,
+  "originalLogoExactMatch": true,
+  "physicalDeviceValidation": false,
+  "screenshots": [
+    {
+      "file": "chat-dark-ready.png",
+      "beforeSha256": "850f75db3a38928ef31a753d66dbf9118903409451683f85349abb746d745b89",
+      "afterSha256": "dc2d6ba0ec9ee682e81fc6d5abe6371fc6dc53f47520260544b9ce825812b4f2"
+    },
+    {
+      "file": "chat-dark-recovery.png",
+      "beforeSha256": "10b31c4a3e6804340b5558f06bc157f79d877b98a70255c16792edf962625134",
+      "afterSha256": "fd892aa8ffc64626f1748577fca8229b276b98a7ab480968dee34257297de092"
+    },
+    {
+      "file": "chat-light-ready.png",
+      "beforeSha256": "3245d5188fc2a03f4e8ae36dbc4b8479417f4290bda4e8f5dab8624b677517fa",
+      "afterSha256": "04696bb765a57e5749c23a5222930b62fa91a771f6b98d22d93a240c806e673e"
+    },
+    {
+      "file": "chat-light-recovery.png",
+      "beforeSha256": "815d2a8b092ac5ce825c8f0de5f0545b258036da6e417ca97d20e664ea2be171",
+      "afterSha256": "8cf5795b0049630c9d908be2d896bd26f9001532b55f0dd7ff6ac34f15d1266d"
+    },
+    {
+      "file": "inbox-dark-ready.png",
+      "beforeSha256": "6e0ffc93f56d282baea2b22247281b16afd03e24b067c0459f8ef9f8fb198ee9",
+      "afterSha256": "08262e4f0f46d899b2c93e81e4bea4a3767efe5f1df287c4a667ddd2bcf89de4"
+    },
+    {
+      "file": "inbox-dark-recovery.png",
+      "beforeSha256": "701271c9b92e1166cfc210903a9f9984d8d8f8502183e0367319719d4253056d",
+      "afterSha256": "22f9c27aaf61bace4393473da7c5652e4c8b1999c60f2c07ec1829069af233a8"
+    },
+    {
+      "file": "inbox-light-ready.png",
+      "beforeSha256": "48691070535686ba5e4e1866611795718b611ccd1b5ec70c24d44c07979a4580",
+      "afterSha256": "f8c8683cfc31324400b97010d8b245963f749ee57438ce473a71097441ad44a2"
+    },
+    {
+      "file": "inbox-light-recovery.png",
+      "beforeSha256": "d7a8520c431232e0c2cb140ea28f83f7708e4833bcd44fcb5f4b8bdc6389f3f2",
+      "afterSha256": "db1436b7e03b7d1d0e832dcd0d856ec02c317f8b44baeb6899e436de17bb2426"
+    },
+    {
+      "file": "timer-dark-font200-320.png",
+      "beforeSha256": "7f9b4cffde954b5f8f01a23debbe2d17d96b109f18677cb83e4d7e42c52e68fc",
+      "afterSha256": "b6d5866880c0860af5b441d75f45e3166504f50e9d5f57b50e08edf3e773cc59"
+    },
+    {
+      "file": "timer-dark-ready.png",
+      "beforeSha256": "3bc778953977c41a607106a3a4d9f3a6781ceaea5c5f7ffa95fda35552efd610",
+      "afterSha256": "f924896365d0cd77a9c1862c3a8e231481ceda5736b2adc3ea5ee5e1cca70bef"
+    },
+    {
+      "file": "timer-dark-recovery.png",
+      "beforeSha256": "7dd246b56cfe5acb17938a6c05aac99ea76a32c54eade75b7541c82e8803d728",
+      "afterSha256": "2179bf0b975d8147b844240b4e1b394199b4c428e96144c1929d4e1f45d06879"
+    },
+    {
+      "file": "timer-light-320.png",
+      "beforeSha256": "94702dc84c77aa521fbe9f2395ff8babb1e8247ef4ca726271fd425984534027",
+      "afterSha256": "b1ca51899932d504670424a026afe60b8c4a1c46a2792631d5f11749c7d1b3f6"
+    },
+    {
+      "file": "timer-light-ready.png",
+      "beforeSha256": "f16c32ac302216456eea73e2a3c640ba9327546d05fec981c842c732b8c918ad",
+      "afterSha256": "ed779ad54ec618588d84ae2e58b2bd427b48881fb66031c691f9440de73030ed"
+    },
+    {
+      "file": "timer-light-recovery.png",
+      "beforeSha256": "cc2d47c4656c6a933537f953dfd9c9cbd0b4b7f6bfeda53ce0f5b2e6e587e2df",
+      "afterSha256": "90db3d4b0a9d077965d2875f5c3b057ebbe8e690059071a898de65623edabdb3"
+    }
+  ],
+  "keyboardRegressionRepeat": {
+    "passed": 2,
+    "failed": 0,
+    "independentKeyboardSetupAndRestoration": true
+  }
+}

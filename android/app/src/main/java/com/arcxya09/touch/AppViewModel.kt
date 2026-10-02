@@ -28,6 +28,8 @@ class AppViewModel internal constructor(application: Application, val repository
     private val marker = File(app.filesDir, "privacy.enabled")
     private val exports by lazy { ExportCoordinator(app, repository, app.vault) }
     private val attempts = app.getSharedPreferences("gesture_attempts", Application.MODE_PRIVATE)
+    private val updatePreferences = app.getSharedPreferences("update_checks", Application.MODE_PRIVATE)
+    var includePrereleases by mutableStateOf(updatePreferences.getBoolean("include_prereleases", false)); private set
     private var pattern = ""
     private var syncJob: Job? = null
     private var resumeJob: Job? = null
@@ -751,12 +753,18 @@ class AppViewModel internal constructor(application: Application, val repository
         syncJob?.cancel(); syncJob = null; startForegroundWork()
     }
 
+    fun setPrereleaseUpdates(enabled: Boolean) {
+        if (isWorking(Operation.Update) || includePrereleases == enabled) return
+        updatePreferences.edit().putBoolean("include_prereleases", enabled).remove("next_check").remove("failures").apply()
+        includePrereleases = enabled
+        update = null; updateApk = null; showUpdate = false
+    }
     fun checkUpdate(manual: Boolean = true) {
         if (!foreground || !mayShowChat || destination == Screen.Timer || isWorking(Operation.Update)) return
         val service = updater ?: return
         if (!manual && !service.due()) return
         action(Operation.Update, reportError = manual) {
-            val result = service.check()
+            val result = service.check(includePrereleases)
             if (foreground && mayShowChat && destination != Screen.Timer) {
                 if (update?.versionCode != result?.versionCode) updateApk = null
                 update = result; showUpdate = result != null

@@ -33,13 +33,15 @@ import kotlinx.coroutines.withContext
     onStatus: (() -> Unit)? = null, actions: @Composable RowScope.() -> Unit = {}) {
     Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         if (back != null) IconButton(onClick = back) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回") }
-        Column(Modifier.weight(1f).padding(start = if (back == null) 8.dp else 4.dp)) {
+        Column(Modifier.weight(1f).padding(start = if (back == null) 8.dp else 4.dp)
+            .heightIn(min = 48.dp)
+            .then(if (status != null && onStatus != null) Modifier.clickable(onClickLabel = "查看连接状态", onClick = onStatus) else Modifier),
+            verticalArrangement = Arrangement.Center) {
             Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.semantics { heading() })
             if (status != null) Text(status, style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.testTag("connection-status").then(if (onStatus != null)
-                    Modifier.heightIn(min = 48.dp).clickable(onClickLabel = "查看连接状态", onClick = onStatus).padding(top = 4.dp) else Modifier))
+                modifier = Modifier.testTag("connection-status"))
         }
         actions()
     }

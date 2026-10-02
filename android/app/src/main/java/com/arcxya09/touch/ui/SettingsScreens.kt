@@ -137,7 +137,10 @@ import com.arcxya09.touch.Screen
         Text("给此刻，留一点空间。", color = MaterialTheme.colorScheme.onSurfaceVariant)
         SupportingNote("版本 ${BuildConfig.VERSION_NAME}")
         SettingsGroup {
-            SettingItem("检查更新", icon = Icons.Outlined.SystemUpdate, enabled = !vm.isWorking(Operation.Update)) { vm.checkUpdate() }
+            ToggleSetting("包含预发布版本", "提前体验新版本；关闭时仅检查正式版。", vm.includePrereleases,
+                enabled = !vm.isWorking(Operation.Update), onChange = vm::setPrereleaseUpdates)
+            SettingItem("检查更新", if (vm.includePrereleases) "正式版与预发布版本" else "仅正式版", icon = Icons.Outlined.SystemUpdate,
+                enabled = !vm.isWorking(Operation.Update)) { vm.checkUpdate() }
             if (vm.updateApk != null && vm.update != null) SettingItem("继续安装已下载的更新", icon = Icons.Outlined.InstallMobile) { vm.showUpdate = true }
             SettingItem("连接诊断", "查看当前连接状态和脱敏诊断信息", Icons.Outlined.NetworkCheck) { vm.diagnostics() }
         }
