@@ -12,7 +12,7 @@ from starlette.datastructures import UploadFile
 from app import uploads
 from app.database import SessionLocal
 from app.main import app
-from app.models import User
+from app.models import MobileSession, User, now
 from app.security import current_user
 from conftest import friends, login
 from test_api import admin_login, send
@@ -136,8 +136,6 @@ def test_recall_requires_both_clients_and_downgrade_gets_update_prompt(client):
 
 
 def test_existing_sessions_gain_recall_after_server_upgrade_without_relogin(client):
-    from app.models import MobileSession
-
     ah, bh, _, _, cid = friends(client)
     original = send(client, ah, cid).json()
     # A migrated server defaults existing sessions to unknown capability.
@@ -159,6 +157,128 @@ def test_existing_sessions_gain_recall_after_server_upgrade_without_relogin(clie
     path = f"/api/v1/conversations/{cid}/messages/{original['id']}"
     assert client.post(path + "/recall", headers=ah).status_code == 200
     assert client.get(f"/api/v1/conversations/{cid}/messages", headers=bh).json()["messages"] == []
+
+
+@pytest.mark.parametrize("declared", [False, True])
+def test_session_capability_change_notifies_both_conversation_accounts_once(client, declared):
+    ah, bh, account, _, _ = friends(client)
+    with SessionLocal() as db:
+        session = db.scalar(select(MobileSession).where(MobileSession.user_id == account["user"]["id"]))
+        session.supports_recall = not declared
+        db.commit()
+    cursors = {headers["Authorization"]: client.get("/api/v1/sync", headers=headers).json()["cursor"]
+               for headers in (ah, bh)}
+    request_headers = ah if declared else {"Authorization": ah["Authorization"]}
+    for _ in range(2):
+        assert client.get("/api/v1/auth/me", headers=request_headers).status_code == 200
+    for headers in (ah, bh):
+        cursor = cursors[headers["Authorization"]]
+        events = client.get(f"/api/v1/sync?cursor={cursor}", headers=headers).json()["events"]
+        assert [event["kind"] for event in events] == ["capabilities_changed"]
+        assert events[0]["payload"] == {}
+        assert client.get("/api/v1/conversations", headers=headers).json()[0]["can_recall"] is declared
+
+
+@pytest.mark.parametrize("declared", [False, True])
+def test_refresh_registers_current_capability_and_wakes_peer_without_me(client, declared):
+    ah, bh, _, peer, cid = friends(client)
+    original = send(client, ah, cid).json()
+    with SessionLocal() as db:
+        session = db.scalar(select(MobileSession).where(MobileSession.user_id == peer["user"]["id"]))
+        session.supports_recall = not declared
+        db.commit()
+    cursor = client.get("/api/v1/sync", headers=ah).json()["cursor"]
+    response = client.post("/api/v1/auth/refresh", headers={"X-Touch-Capabilities": "recall-v1"} if declared else {},
+                           json={"refresh_token": peer["refresh_token"]})
+    assert response.status_code == 200
+    assert client.get("/api/v1/conversations", headers=ah).json()[0]["can_recall"] is declared
+    events = client.get(f"/api/v1/sync?cursor={cursor}", headers=ah).json()["events"]
+    assert [event["kind"] for event in events] == ["capabilities_changed"]
+    path = f"/api/v1/conversations/{cid}/messages/{original['id']}/recall"
+    assert client.post(path, headers=ah).status_code == (200 if declared else 409)
+    renewed = {**bh, "Authorization": "Bearer " + response.json()["access_token"]}
+    assert client.get("/api/v1/conversations", headers=renewed).status_code == 200
+
+
+@pytest.mark.parametrize("declared", [False, True])
+def test_login_capability_change_notifies_both_accounts_without_duplicate_events(client, declared):
+    ah, bh, account, _, _ = friends(client)
+    with SessionLocal() as db:
+        session = db.scalar(select(MobileSession).where(MobileSession.user_id == account["user"]["id"]))
+        session.supports_recall = not declared
+        db.commit()
+    owner_cursor = client.get("/api/v1/sync", headers=ah).json()["cursor"]
+    peer_cursor = client.get("/api/v1/sync", headers=bh).json()["cursor"]
+    request_headers = {"X-Touch-Capabilities": "recall-v1"} if declared else {}
+    # Repeating a login rotates credentials, but identical capabilities must not
+    # create an event loop or cause unnecessary conversation refreshes.
+    for _ in range(2):
+        response = client.post("/api/v1/auth/login", headers=request_headers,
+                               json={"username": "alice", "password": "password123!"})
+        assert response.status_code == 200
+    owner_headers = {**request_headers, "Authorization": "Bearer " + response.json()["access_token"]}
+    assert client.get("/api/v1/auth/me", headers=owner_headers).status_code == 200
+    for headers, cursor in ((owner_headers, owner_cursor), (bh, peer_cursor)):
+        events = client.get(f"/api/v1/sync?cursor={cursor}", headers=headers).json()["events"]
+        assert [event["kind"] for event in events] == ["capabilities_changed"]
+        assert client.get("/api/v1/conversations", headers=headers).json()[0]["can_recall"] is declared
+    assert client.get("/api/v1/auth/me", headers=ah).status_code == 401
+    assert client.post("/api/v1/auth/refresh", json={"refresh_token": account["refresh_token"]}).status_code == 401
+
+
+@pytest.mark.parametrize("unavailable", ["expired", "revoked", "missing"])
+def test_login_restoring_capable_session_notifies_conversation_peer(client, unavailable):
+    _, bh, account, peer, _ = friends(client)
+    with SessionLocal() as db:
+        owner = db.get(User, account["user"]["id"])
+        peer_user = db.get(User, peer["user"]["id"])
+        owner_cursor, peer_cursor = owner.sync_seq, peer_user.sync_seq
+        session = db.scalar(select(MobileSession).where(MobileSession.user_id == owner.id))
+        if unavailable == "expired":
+            session.refresh_expires = now() - 1
+        elif unavailable == "revoked":
+            owner.session_epoch += 1
+        else:
+            db.delete(session)
+        db.commit()
+    assert not client.get("/api/v1/conversations", headers=bh).json()[0]["can_recall"]
+    owner_headers, _ = login(client, "alice")
+    for headers, cursor in ((owner_headers, owner_cursor), (bh, peer_cursor)):
+        events = client.get(f"/api/v1/sync?cursor={cursor}", headers=headers).json()["events"]
+        assert [event["kind"] for event in events] == ["capabilities_changed"]
+        assert client.get("/api/v1/conversations", headers=headers).json()[0]["can_recall"]
+
+
+@pytest.mark.parametrize("operation", ["me", "refresh"])
+def test_capability_change_revalidates_credentials_after_account_locks(client, monkeypatch, operation):
+    from app import api
+
+    ah, _, account, _, _ = friends(client)
+    account_id = account["user"]["id"]
+    with SessionLocal() as db:
+        session = db.scalar(select(MobileSession).where(MobileSession.user_id == account_id))
+        session.supports_recall = False
+        before = {user.id: user.sync_seq for user in db.scalars(select(User)).all()}
+        db.commit()
+    original_locks = api.lock_accounts
+
+    def revoke_while_waiting(db):
+        accounts = original_locks(db)
+        accounts[account_id].session_epoch += 1
+        db.commit()
+        return accounts
+
+    monkeypatch.setattr(api, "lock_accounts", revoke_while_waiting)
+    if operation == "me":
+        response = client.get("/api/v1/auth/me", headers=ah)
+    else:
+        response = client.post("/api/v1/auth/refresh", headers=ah,
+                               json={"refresh_token": account["refresh_token"]})
+    assert response.status_code == 401
+    with SessionLocal() as db:
+        session = db.scalar(select(MobileSession).where(MobileSession.user_id == account_id))
+        assert not session.supports_recall
+        assert {user.id: user.sync_seq for user in db.scalars(select(User)).all()} == before
 
 
 def test_legacy_admin_history_and_context_never_receive_fake_attachment(client):

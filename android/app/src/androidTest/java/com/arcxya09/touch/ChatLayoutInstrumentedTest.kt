@@ -4,15 +4,19 @@ import android.graphics.Bitmap
 import android.os.ParcelFileDescriptor
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -125,6 +129,122 @@ class ChatLayoutInstrumentedTest {
         compose.runOnIdle { newer = false; scope.launch { scroll.scrollToItem(5) } }
         compose.waitForIdle()
         compose.onNodeWithTag("jump-to-latest").assertExists()
+    }
+
+    @Test fun longPressTextMenuDoesNotMoveBubbleOrFollowingStatus() {
+        assertMessageMenuKeepsLayout(isText = true, quoted = false)
+    }
+
+    @Test fun longPressQuotedTextMenuDoesNotMoveBubbleOrFollowingStatus() {
+        assertMessageMenuKeepsLayout(isText = true, quoted = true)
+    }
+
+    @Test fun longPressFileMenuDoesNotMoveBubbleOrFollowingStatus() {
+        assertMessageMenuKeepsLayout(isText = false, quoted = false)
+    }
+
+    @Test fun ownMessageCanRecallFromLongPressMenu() {
+        var recalls = 0
+        compose.setContent {
+            TouchTheme { MessageMenuFixture(canRecall = true, onRecall = { recalls++ }) }
+        }
+        compose.onNodeWithTag("menu-message-text").performTouchInput { longClick() }
+        compose.onNodeWithText("撤回消息").assertIsEnabled().performClick()
+        compose.onNodeWithText("撤回消息").assertDoesNotExist()
+        compose.runOnIdle { assertEquals(1, recalls) }
+    }
+
+    @Test fun unavailableRecallIsVisibleWithExplanationAndCannotRun() {
+        var recalls = 0
+        compose.setContent {
+            TouchTheme { MessageMenuFixture(canRecall = false, onRecall = { recalls++ }) }
+        }
+        compose.onNodeWithTag("menu-message-text").performTouchInput { longClick() }
+        val action = compose.onNodeWithText("撤回消息")
+        action.assertIsDisplayed().assertIsNotEnabled()
+        compose.onNodeWithText("对方需更新并打开 Touch").assertIsDisplayed()
+        action.performTouchInput { click() }
+        compose.runOnIdle { assertEquals(0, recalls) }
+        action.assertIsDisplayed()
+    }
+
+    @Test fun peerPendingAndRecalledMessageMenusDoNotOfferRecall() {
+        data class Case(val own: Boolean, val valid: Boolean, val recalled: Boolean)
+        val cases = listOf(Case(false, true, false), Case(true, false, false), Case(true, true, true))
+        var selected by mutableStateOf(cases.first())
+        compose.setContent {
+            TouchTheme {
+                key(selected) {
+                    MessageMenuFixture(own = selected.own, valid = selected.valid, recalled = selected.recalled,
+                        canRecall = true, initiallyExpanded = true)
+                }
+            }
+        }
+        for (case in cases) {
+            compose.runOnIdle { selected = case }
+            compose.onNodeWithText("本地删除").assertExists()
+            compose.onNodeWithText("撤回消息").assertDoesNotExist()
+            compose.onNodeWithText("对方需更新并打开 Touch").assertDoesNotExist()
+        }
+    }
+
+    private fun assertMessageMenuKeepsLayout(isText: Boolean, quoted: Boolean) {
+        compose.setContent {
+            TouchTheme { MessageMenuFixture(isText = isText, quoted = quoted, canRecall = true) }
+        }
+        val bubble = compose.onNodeWithTag("menu-message-bubble", useUnmergedTree = true)
+        val status = compose.onNodeWithTag("menu-message-status", useUnmergedTree = true)
+        val initialBubble = bubble.fetchSemanticsNode().boundsInRoot
+        val initialStatus = status.fetchSemanticsNode().boundsInRoot
+        val target = if (isText) compose.onNodeWithTag("menu-message-text") else bubble
+        target.performTouchInput { longClick() }
+        compose.onNodeWithText("本地删除").assertIsDisplayed()
+        assertEquals("Opening the message menu must preserve the complete bubble bounds",
+            initialBubble, bubble.fetchSemanticsNode().boundsInRoot)
+        assertEquals("Opening the message menu must not move the following status row",
+            initialStatus, status.fetchSemanticsNode().boundsInRoot)
+        Espresso.pressBack()
+        compose.onNodeWithText("本地删除").assertDoesNotExist()
+        assertEquals("Closing the message menu must preserve the complete bubble bounds",
+            initialBubble, bubble.fetchSemanticsNode().boundsInRoot)
+        assertEquals("Closing the message menu must not move the following status row",
+            initialStatus, status.fetchSemanticsNode().boundsInRoot)
+    }
+
+    @OptIn(ExperimentalFoundationApi::class)
+    @Composable private fun MessageMenuFixture(isText: Boolean = true, quoted: Boolean = false,
+        own: Boolean = true, valid: Boolean = true, recalled: Boolean = false, canRecall: Boolean = true,
+        initiallyExpanded: Boolean = false, onRecall: () -> Unit = {}) {
+        var expanded by remember { mutableStateOf(initiallyExpanded) }
+        val showMenu = { if (valid) expanded = true; Unit }
+        val dismiss = { expanded = false }
+        Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = if (own) Alignment.End else Alignment.Start) {
+            MessageBubbleFrame(own, modifier = Modifier.widthIn(max = 260.dp).testTag("menu-message-bubble")
+                .then(if (!isText) Modifier.combinedClickable(onClick = {}, onLongClick = showMenu) else Modifier),
+                menu = {
+                    MessageActionsMenu(expanded, dismiss, valid, recalled, isText, own, canRecall, false,
+                        onQuote = dismiss, onCopy = dismiss, onSelect = dismiss, onDelete = dismiss,
+                        onRecall = { onRecall(); expanded = false })
+                }) {
+                if (quoted) Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = MaterialTheme.shapes.small) {
+                    Column(Modifier.padding(8.dp)) {
+                        Text("引用小林的消息", style = MaterialTheme.typography.labelSmall)
+                        Text("引用内容\n第二行引用内容", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                if (isText) MessageText("这是一条可长按的消息\n第二行消息内容", {},
+                    Modifier.testTag("menu-message-text"), onLongPress = showMenu)
+                else {
+                    Icon(Icons.Outlined.Description, null, Modifier.padding(bottom = 8.dp))
+                    Text("季度总结.pdf", style = MaterialTheme.typography.titleSmall)
+                    SupportingNote("2.4 MiB · 点击查看")
+                }
+            }
+            Row(Modifier.padding(horizontal = 4.dp, vertical = 4.dp).testTag("menu-message-status"),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text("12:34 · 已发送", style = MaterialTheme.typography.labelSmall)
+            }
+        }
     }
 
     @Test fun keyboardMovesLatestMessageAndPreservesHistoryPosition() {

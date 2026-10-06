@@ -82,38 +82,62 @@ def rotate_session(user: User, session: MobileSession):
             "expires_in": settings.access_seconds, "user": user_json(user, private=True)}
 
 
+def update_session_capabilities(db: Session, user: User, session: MobileSession, declared: bool, notify=False):
+    """Caller holds account locks in stable order before notifying conversation peers."""
+    if session.supports_recall == declared and not notify:
+        return False
+    session.supports_recall = declared
+    recipients = {user.id}
+    conversations = db.scalars(select(Conversation).where(or_(Conversation.a == user.id, Conversation.b == user.id)))
+    for conversation in conversations:
+        recipients.update((conversation.a, conversation.b))
+    emit(db, [account_id for account_id in recipients if db.get(User, account_id).deleted_at is None],
+         "capabilities_changed", {})
+    return True
+
+
 @router.post("/auth/login")
 def login(body: Login, request: Request, db: Session = Depends(get_db)):
     name = body.username.strip().lower()
     limiter.check("login-ip:" + request.client.host, 20, 300)
     limiter.check("login-user:" + name, 10, 300)
+    # A login can change the capability visible to conversation peers. Lock in
+    # the same stable account order before taking this user's individual lock.
+    lock_accounts(db)
     user = db.scalar(select(User).where(User.username == name).with_for_update())
     valid = verify_password(user.password_hash if user else dummy_hash, body.password)
     if not user or not valid or not user.active:
         raise HTTPException(401, "账号或密码错误，或账号已停用")
     session = db.scalar(select(MobileSession).where(MobileSession.user_id == user.id))
+    previously_capable = bool(session and session.supports_recall and session.epoch == user.session_epoch
+                              and session.refresh_expires > now())
     if not session:
-        session = MobileSession(user_id=user.id)
+        session = MobileSession(user_id=user.id, supports_recall=False)
         db.add(session)
     user.session_epoch += 1
-    session.supports_recall = supports_recall(request)
     result = rotate_session(user, session)
+    declared = supports_recall(request)
+    # Fill token fields before capability queries can autoflush a new session.
+    update_session_capabilities(db, user, session, declared, notify=declared and not previously_capable)
     db.commit()
     return result
 
 
 @router.post("/auth/refresh")
-def refresh(body: Refresh, db: Session = Depends(get_db)):
-    # Always lock user before session, matching login/reset lock order.
+def refresh(body: Refresh, request: Request, db: Session = Depends(get_db)):
     old = db.scalar(select(MobileSession).where(MobileSession.refresh_hash == digest(body.refresh_token)))
     if not old:
         raise HTTPException(401, "登录已失效")
+    # Capability changes notify peers. Acquire all account locks in stable order
+    # before locking a single account or rotating the session.
+    lock_accounts(db)
     user = db.scalar(select(User).where(User.id == old.user_id).with_for_update())
     old = db.scalar(select(MobileSession).where(MobileSession.id == old.id)
                     .execution_options(populate_existing=True))
     if (not old or not user or old.refresh_hash != digest(body.refresh_token) or old.refresh_expires <= now()
             or not user.active or old.epoch != user.session_epoch):
         raise HTTPException(401, "登录已失效")
+    update_session_capabilities(db, user, old, supports_recall(request))
     result = rotate_session(user, old)
     db.commit()
     return result
@@ -121,12 +145,15 @@ def refresh(body: Refresh, db: Session = Depends(get_db)):
 
 @router.get("/auth/me")
 def me(request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    db.scalar(select(User).where(User.id == user.id).with_for_update().execution_options(populate_existing=True))
     user, session = authenticate(db, request.headers["authorization"][7:])
     declared = supports_recall(request)
     if session.supports_recall != declared:
-        session.supports_recall = declared
-        db.commit()
+        # Do not first take this user's lock: peer notifications must follow the
+        # same stable account order as send/recall/contact operations.
+        lock_accounts(db)
+        user, session = authenticate(db, request.headers["authorization"][7:])
+        if update_session_capabilities(db, user, session, declared):
+            db.commit()
     return user_json(user, private=True)
 
 

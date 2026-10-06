@@ -172,21 +172,17 @@ import java.time.format.DateTimeFormatter
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val bubbleWidth = minOf(maxWidth * 0.86f, 420.dp)
         Column(Modifier.fillMaxWidth(), horizontalAlignment = if (own) Alignment.End else Alignment.Start) {
-            ChatBubbleSurface(own, vm.highlightId == message.id,
+            MessageBubbleFrame(own, vm.highlightId == message.id,
                 modifier = Modifier.widthIn(max = bubbleWidth).then(if ((message.file != null || recalled) && !message.pending)
                     Modifier.combinedClickable(enabled = !busy, onClick = { if (!recalled) vm.openFile(message) }, onLongClickLabel = "消息操作", onLongClick = showMenu)
-                        .semantics { customActions = accessibleActions } else Modifier)) {
-                Column(Modifier.padding(horizontal = 14.dp, vertical = 11.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        .semantics { customActions = accessibleActions } else Modifier),
+                menu = {
+                    MessageActionsMenu(menu, { menu = false }, valid, recalled, message.kind == "text", own, canRecall, busy,
+                        onQuote = { vm.quoteMessage(message); menu = false }, onCopy = { copy(); menu = false },
+                        onSelect = { menu = false; selecting = true }, onDelete = { menu = false; delete = true },
+                        onRecall = { menu = false; recall = true })
+                }) {
                     message.replyTo?.let { QuotePreview(it, message.conversationId, vm) }
-                    DropdownMenu(menu, { menu = false }) {
-                        if (valid && !recalled) DropdownMenuItem(text = { Text("引用回复") }, onClick = { vm.quoteMessage(message); menu = false })
-                        if (message.kind == "text") {
-                            DropdownMenuItem(text = { Text("复制全文") }, onClick = { copy(); menu = false })
-                            DropdownMenuItem(text = { Text("选择文字") }, onClick = { menu = false; selecting = true })
-                        }
-                        DropdownMenuItem(text = { Text("本地删除") }, enabled = valid && !busy, onClick = { menu = false; delete = true })
-                        if (canRecall) DropdownMenuItem(text = { Text("撤回消息") }, enabled = valid && !busy, onClick = { menu = false; recall = true })
-                    }
                     if (recalled) Text(if (own) "你撤回了一条消息" else "对方撤回了一条消息", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     else if (message.kind == "text") MessageText(message.text, openLink, Modifier.testTag("message-text-${message.id}"),
                         onLongPress = if (selecting) null else showMenu, messageActions = accessibleActions)
@@ -196,7 +192,6 @@ import java.time.format.DateTimeFormatter
                         Text(message.file?.name ?: "附件", style = MaterialTheme.typography.titleSmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
                         message.file?.let { SupportingNote("${formatFileSize(it.size)} · 点击查看") }
                     }
-                }
             }
             if (selecting) TextButton(onClick = { selecting = false }) { Text("完成选择") }
             if (message.pending) PendingMessageActions(message.id in vm.sendingIds, vm.isWorking(Operation.Send), { vm.retry(message.id) }, { vm.discard(message.id) })

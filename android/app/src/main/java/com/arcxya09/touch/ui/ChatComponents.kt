@@ -55,6 +55,36 @@ import androidx.compose.ui.unit.dp
         modifier = modifier, content = content)
 }
 
+/** The popup anchor stays outside the spaced content so opening it cannot resize the bubble. */
+@Composable internal fun MessageBubbleFrame(own: Boolean, highlighted: Boolean = false,
+    modifier: Modifier = Modifier, menu: @Composable () -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {
+    Box {
+        ChatBubbleSurface(own, highlighted, modifier) {
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 11.dp), verticalArrangement = Arrangement.spacedBy(4.dp), content = content)
+        }
+        menu()
+    }
+}
+
+@Composable internal fun MessageActionsMenu(expanded: Boolean, onDismiss: () -> Unit,
+    valid: Boolean, recalled: Boolean, isText: Boolean, own: Boolean, canRecall: Boolean, busy: Boolean,
+    onQuote: () -> Unit, onCopy: () -> Unit, onSelect: () -> Unit, onDelete: () -> Unit, onRecall: () -> Unit) {
+    DropdownMenu(expanded, onDismiss) {
+        if (valid && !recalled) DropdownMenuItem(text = { Text("引用回复") }, onClick = onQuote)
+        if (isText) {
+            DropdownMenuItem(text = { Text("复制全文") }, onClick = onCopy)
+            DropdownMenuItem(text = { Text("选择文字") }, onClick = onSelect)
+        }
+        DropdownMenuItem(text = { Text("本地删除") }, enabled = valid && !busy, onClick = onDelete)
+        if (own && valid && !recalled) DropdownMenuItem(text = {
+            Column {
+                Text("撤回消息")
+                if (!canRecall) Text("对方需更新并打开 Touch", style = MaterialTheme.typography.labelSmall)
+            }
+        }, enabled = canRecall && !busy, onClick = onRecall)
+    }
+}
+
 @Composable internal fun PendingMessageActions(sending: Boolean, busy: Boolean, retry: () -> Unit, discard: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(if (sending) "发送中" else "发送失败", style = MaterialTheme.typography.labelSmall,
