@@ -20,6 +20,8 @@ Compose 的应用构建上下文是仓库根目录，Dockerfile 为 `server/Dock
 
 数据库迁移应为前向兼容。回滚应用前确认旧版本能读取当前数据库；恢复旧备份可能丢失备份后的消息，需要明确确认。
 
+发布客户端前必须确认生产服务端实际升级。构建时设置 `TOUCH_BUILD` 为完整提交 SHA，随后执行 `python ops/verify_deployment.py --url https://chat.worldofmy.uk --version <版本号> --build <完整提交 SHA>`；仅 HTTP 200 不代表协议已部署。2.0.3 修复的撤回缺失正是旧服务端没有撤回接口及 `can_recall` 字段造成的。迁移保留原登录状态，双方新版客户端下次 `/auth/me` 同步会登记能力，无需强制退出重登；旧端仍按兼容协议限制撤回。
+
 ## 备份
 
 `ops/backup.sh` 会短暂停止 Touch 应用以取得一致的数据库和附件快照，不停止数据库和其他服务。默认输出 `/var/backups/touch`，保留最近 7 天。备份文件权限受 `umask 077` 保护；建议额外复制到你控制的独立存储。

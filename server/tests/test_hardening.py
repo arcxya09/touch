@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import pytest
 from PIL import Image
+from sqlalchemy import select
 from starlette.datastructures import UploadFile
 
 from app import uploads
@@ -132,6 +133,32 @@ def test_recall_requires_both_clients_and_downgrade_gets_update_prompt(client):
     assert response.status_code == 409 and "请更新 Touch" in response.json()["detail"]
     assert original["text"] not in response.text
     assert client.get(f"/api/v1/conversations/{cid}/messages", headers=legacy).json()["messages"] == []
+
+
+def test_existing_sessions_gain_recall_after_server_upgrade_without_relogin(client):
+    from app.models import MobileSession
+
+    ah, bh, _, _, cid = friends(client)
+    original = send(client, ah, cid).json()
+    # A migrated server defaults existing sessions to unknown capability.
+    with SessionLocal() as db:
+        sessions = db.scalars(select(MobileSession)).all()
+        before = {row.id: (row.access_hash, row.refresh_hash, row.epoch) for row in sessions}
+        for row in sessions:
+            row.supports_recall = False
+        db.commit()
+    assert not client.get("/api/v1/conversations", headers=ah).json()[0]["can_recall"]
+    assert client.get("/api/v1/auth/me", headers=ah).status_code == 200
+    assert not client.get("/api/v1/conversations", headers=ah).json()[0]["can_recall"]
+    assert client.get("/api/v1/auth/me", headers=bh).status_code == 200
+    assert client.get("/api/v1/conversations", headers=ah).json()[0]["can_recall"]
+    with SessionLocal() as db:
+        after = {row.id: (row.access_hash, row.refresh_hash, row.epoch)
+                 for row in db.scalars(select(MobileSession)).all()}
+    assert after == before
+    path = f"/api/v1/conversations/{cid}/messages/{original['id']}"
+    assert client.post(path + "/recall", headers=ah).status_code == 200
+    assert client.get(f"/api/v1/conversations/{cid}/messages", headers=bh).json()["messages"] == []
 
 
 def test_legacy_admin_history_and_context_never_receive_fake_attachment(client):
