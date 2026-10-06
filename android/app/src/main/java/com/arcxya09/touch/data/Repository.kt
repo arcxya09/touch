@@ -381,7 +381,6 @@ class Repository(private val context: Context, private val database: () -> Touch
         app.alerts.clearMessages()
     } } }
     suspend fun recallMessage(message: ChatMessage) {
-        check(conversations().firstOrNull { it.id == message.conversationId }?.canRecall == true) { "双方更新 Touch 后可使用撤回" }
         api.json("/api/v1/conversations/${message.conversationId}/messages/${message.id}/recall", "POST", JSONObject())
         sync()
     }

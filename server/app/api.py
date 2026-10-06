@@ -14,7 +14,6 @@ from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from .config import settings
-from .capabilities import can_recall, message_for_client, supports_recall
 from .passwords import replace_password
 from .uploads import require_storage
 from .account_deletion import lock_accounts
@@ -82,78 +81,43 @@ def rotate_session(user: User, session: MobileSession):
             "expires_in": settings.access_seconds, "user": user_json(user, private=True)}
 
 
-def update_session_capabilities(db: Session, user: User, session: MobileSession, declared: bool, notify=False):
-    """Caller holds account locks in stable order before notifying conversation peers."""
-    if session.supports_recall == declared and not notify:
-        return False
-    session.supports_recall = declared
-    recipients = {user.id}
-    conversations = db.scalars(select(Conversation).where(or_(Conversation.a == user.id, Conversation.b == user.id)))
-    for conversation in conversations:
-        recipients.update((conversation.a, conversation.b))
-    emit(db, [account_id for account_id in recipients if db.get(User, account_id).deleted_at is None],
-         "capabilities_changed", {})
-    return True
-
-
 @router.post("/auth/login")
 def login(body: Login, request: Request, db: Session = Depends(get_db)):
     name = body.username.strip().lower()
     limiter.check("login-ip:" + request.client.host, 20, 300)
     limiter.check("login-user:" + name, 10, 300)
-    # A login can change the capability visible to conversation peers. Lock in
-    # the same stable account order before taking this user's individual lock.
-    lock_accounts(db)
     user = db.scalar(select(User).where(User.username == name).with_for_update())
     valid = verify_password(user.password_hash if user else dummy_hash, body.password)
     if not user or not valid or not user.active:
         raise HTTPException(401, "账号或密码错误，或账号已停用")
     session = db.scalar(select(MobileSession).where(MobileSession.user_id == user.id))
-    previously_capable = bool(session and session.supports_recall and session.epoch == user.session_epoch
-                              and session.refresh_expires > now())
     if not session:
-        session = MobileSession(user_id=user.id, supports_recall=False)
+        session = MobileSession(user_id=user.id)
         db.add(session)
     user.session_epoch += 1
     result = rotate_session(user, session)
-    declared = supports_recall(request)
-    # Fill token fields before capability queries can autoflush a new session.
-    update_session_capabilities(db, user, session, declared, notify=declared and not previously_capable)
     db.commit()
     return result
 
 
 @router.post("/auth/refresh")
-def refresh(body: Refresh, request: Request, db: Session = Depends(get_db)):
+def refresh(body: Refresh, db: Session = Depends(get_db)):
     old = db.scalar(select(MobileSession).where(MobileSession.refresh_hash == digest(body.refresh_token)))
     if not old:
         raise HTTPException(401, "登录已失效")
-    # Capability changes notify peers. Acquire all account locks in stable order
-    # before locking a single account or rotating the session.
-    lock_accounts(db)
     user = db.scalar(select(User).where(User.id == old.user_id).with_for_update())
     old = db.scalar(select(MobileSession).where(MobileSession.id == old.id)
                     .execution_options(populate_existing=True))
     if (not old or not user or old.refresh_hash != digest(body.refresh_token) or old.refresh_expires <= now()
             or not user.active or old.epoch != user.session_epoch):
         raise HTTPException(401, "登录已失效")
-    update_session_capabilities(db, user, old, supports_recall(request))
     result = rotate_session(user, old)
     db.commit()
     return result
 
 
 @router.get("/auth/me")
-def me(request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    user, session = authenticate(db, request.headers["authorization"][7:])
-    declared = supports_recall(request)
-    if session.supports_recall != declared:
-        # Do not first take this user's lock: peer notifications must follow the
-        # same stable account order as send/recall/contact operations.
-        lock_accounts(db)
-        user, session = authenticate(db, request.headers["authorization"][7:])
-        if update_session_capabilities(db, user, session, declared):
-            db.commit()
+def me(user: User = Depends(current_user)):
     return user_json(user, private=True)
 
 
@@ -223,7 +187,7 @@ def change_password(body: Password, request: Request, user: User = Depends(curre
     db.scalar(select(User).where(User.id == user.id).with_for_update().execution_options(populate_existing=True))
     user, _ = authenticate(db, request.headers["authorization"][7:])
     replace_password(db, user, body.current_password, body.new_password)
-    session = MobileSession(user_id=user.id, supports_recall=supports_recall(request))
+    session = MobileSession(user_id=user.id)
     db.add(session)
     result = {**user_json(user, private=True), "session": rotate_session(user, session)}
     db.commit()
@@ -318,13 +282,13 @@ def change_contact(peer_id: UUID, body: ContactAction, request: Request, user: U
 
 
 @router.get("/conversations")
-def conversations(request: Request, after_time: int = Query(default=0, ge=0), user: User = Depends(ready_user),
+def conversations(after_time: int = Query(default=0, ge=0), user: User = Depends(ready_user),
                   db: Session = Depends(get_db)):
-    return all_conversations(db, user.id, after_time, supports_recall(request))
+    return all_conversations(db, user.id, after_time)
 
 
 @router.get("/conversations/{conversation_id}/messages")
-def history(conversation_id: UUID, request: Request, before: int | None = Query(default=None, ge=1),
+def history(conversation_id: UUID, before: int | None = Query(default=None, ge=1),
             after_time: int = Query(default=0, ge=0),
             limit: int = Query(default=50, ge=1, le=100), user: User = Depends(ready_user),
             db: Session = Depends(get_db)):
@@ -336,7 +300,7 @@ def history(conversation_id: UUID, request: Request, before: int | None = Query(
     if before is not None:
         query = query.where(Message.seq < before)
     messages = db.scalars(query.order_by(Message.seq.desc()).limit(limit + 1)).all()
-    return {"messages": [message_for_client(message_json(db, m), supports_recall(request)) for m in reversed(messages[:limit])],
+    return {"messages": [message_json(db, m) for m in reversed(messages[:limit])],
             "has_more": len(messages) > limit}
 
 
@@ -354,7 +318,7 @@ def original_message(conversation_id: UUID, message_id: UUID,
 
 
 @router.get("/conversations/{conversation_id}/messages/{message_id}/context")
-def message_context(conversation_id: UUID, message_id: UUID, request: Request,
+def message_context(conversation_id: UUID, message_id: UUID,
                     after_time: int = Query(default=0, ge=0),
                     user: User = Depends(ready_user), db: Session = Depends(get_db)):
     target = original_message(conversation_id, message_id, after_time, user, db)
@@ -366,8 +330,7 @@ def message_context(conversation_id: UUID, message_id: UUID, request: Request,
         visible = visible.where(Message.kind != "recalled")
     before = db.scalars(visible.where(Message.seq < target["seq"]).order_by(Message.seq.desc()).limit(24)).all()
     after = db.scalars(visible.where(Message.seq >= target["seq"]).order_by(Message.seq).limit(26)).all()
-    return {"messages": [message_for_client(message_json(db, m), supports_recall(request))
-                          for m in [*reversed(before), *after]], "target_id": target["id"]}
+    return {"messages": [message_json(db, m) for m in [*reversed(before), *after]], "target_id": target["id"]}
 
 
 @router.post("/conversations/{conversation_id}/messages")
@@ -436,8 +399,8 @@ def recall(conversation_id: UUID, message_id: UUID, request: Request, user: User
     initial = conversation_for(db, str(conversation_id), user.id)
     db.scalars(select(User).where(User.id.in_([initial.a, initial.b])).order_by(User.id).with_for_update()
                .execution_options(populate_existing=True)).all()
-    # Login, password rotation and capability changes use the same account locks.
-    # A new capable session must not authorize an old request that waited here.
+    # Login and password rotation use the same account locks. An old request
+    # that waited here must not outlive revocation of its own credentials.
     user = revalidate_ready_user(request, db)
     conversation = conversation_for(db, initial.id, user.id, lock=True)
     message = db.get(Message, str(message_id))
@@ -447,8 +410,6 @@ def recall(conversation_id: UUID, message_id: UUID, request: Request, user: User
         raise HTTPException(403, "只能撤回自己的消息")
     if message.kind == "recalled":
         return {"ok": True}
-    if not can_recall(db, conversation, supports_recall(request)):
-        raise HTTPException(409, "双方更新 Touch 并登录后才可撤回消息")
     attachment_id = message.attachment_id
     message.kind = "recalled"
     message.text = ""
@@ -519,7 +480,7 @@ def delete_conversation(conversation_id: UUID, request: Request, user: User = De
 
 
 @router.get("/sync")
-def sync(request: Request, cursor: int = Query(default=0, ge=0), limit: int = Query(default=100, ge=1, le=500),
+def sync(cursor: int = Query(default=0, ge=0), limit: int = Query(default=100, ge=1, le=500),
          after_time: int = Query(default=0, ge=0),
          user: User = Depends(ready_user), db: Session = Depends(get_db)):
     rows = db.scalars(select(SyncEvent).where(SyncEvent.user_id == user.id, SyncEvent.seq > cursor)
@@ -537,8 +498,6 @@ def sync(request: Request, cursor: int = Query(default=0, ge=0), limit: int = Qu
                 payload = None
             if payload is None:
                 kind, payload = "noop", {}
-            else:
-                payload = message_for_client(payload, supports_recall(request))
         events.append({"seq": row.seq, "kind": kind, "payload": payload})
     return {"events": events, "cursor": events[-1]["seq"] if events else cursor, "has_more": len(rows) > limit}
 

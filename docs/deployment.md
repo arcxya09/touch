@@ -16,11 +16,11 @@ Compose 的应用构建上下文是仓库根目录，Dockerfile 为 `server/Dock
 
 ## 升级
 
-先备份，获取已审核的源码，再 `docker compose up -d --build app`。容器启动前执行 Alembic 迁移；迁移失败则服务不启动。当前会话能力迁移为 `a731c02e9714`，旧客户端正常收发保持兼容；遇到旧端不能表达的既有撤回状态时按 [消息动作协议](message-actions.md) 返回明确的 409 更新提示。
+先备份，获取已审核的源码，再 `docker compose up -d --build app`。容器启动前执行 Alembic 迁移；迁移失败则服务不启动。当前迁移为 `a731c02e9714`，2.0.5 不新增迁移。撤回恢复 1.0.13 起的既有协议，1.0.13／1.0.14 不需要能力请求头也能同步；具体边界见 [消息动作协议](message-actions.md)。
 
 数据库迁移应为前向兼容。回滚应用前确认旧版本能读取当前数据库；恢复旧备份可能丢失备份后的消息，需要明确确认。
 
-发布客户端前必须确认生产服务端实际升级。构建时设置 `TOUCH_BUILD` 为完整提交 SHA，随后执行 `python ops/verify_deployment.py --url https://chat.worldofmy.uk --version <版本号> --build <完整提交 SHA>`；仅 HTTP 200 不代表协议已部署。2.0.3 修复的撤回缺失正是旧服务端没有撤回接口及 `can_recall` 字段造成的。迁移保留原登录状态，双方新版客户端下次 `/auth/me` 同步会登记能力，无需强制退出重登；旧端仍按兼容协议限制撤回。
+发布客户端前必须确认生产服务端实际升级。构建时设置 `TOUCH_BUILD` 为完整提交 SHA，随后执行 `python ops/verify_deployment.py --url https://chat.worldofmy.uk --version <版本号> --build <完整提交 SHA>`；仅 HTTP 200 不代表协议已部署。2.0.3 修复的是生产旧构建没有撤回接口的问题，2.0.5 进一步移除错误增加的双方能力限制。保留原登录状态，对方在线或登录状态不影响服务器撤回；现有 2.0–2.0.4 客户端下次正常同步取得 `can_recall=true` 后也可使用。
 
 ## 备份
 

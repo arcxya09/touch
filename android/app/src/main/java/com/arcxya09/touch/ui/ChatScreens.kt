@@ -150,7 +150,6 @@ import java.time.format.DateTimeFormatter
     var selecting by remember(message.id) { mutableStateOf(false) }
     val valid = !message.pending && message.createdAt > vm.visibilityFloor
     val recalled = message.kind == "recalled"
-    val canRecall = own && !recalled && vm.conversations.firstOrNull { it.id == message.conversationId }?.canRecall == true
     val clipboard = LocalClipboard.current
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
@@ -177,7 +176,7 @@ import java.time.format.DateTimeFormatter
                     Modifier.combinedClickable(enabled = !busy, onClick = { if (!recalled) vm.openFile(message) }, onLongClickLabel = "消息操作", onLongClick = showMenu)
                         .semantics { customActions = accessibleActions } else Modifier),
                 menu = {
-                    MessageActionsMenu(menu, { menu = false }, valid, recalled, message.kind == "text", own, canRecall, busy,
+                    MessageActionsMenu(menu, { menu = false }, valid, recalled, message.kind == "text", own, busy,
                         onQuote = { vm.quoteMessage(message); menu = false }, onCopy = { copy(); menu = false },
                         onSelect = { menu = false; selecting = true }, onDelete = { menu = false; delete = true },
                         onRecall = { menu = false; recall = true })

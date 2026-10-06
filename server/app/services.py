@@ -5,7 +5,7 @@ from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from .models import Attachment, Contact, Conversation, Message, SyncEvent, User, now
-from .capabilities import RECALL, can_recall, message_for_client
+from .capabilities import RECALL
 
 
 def pair(a: str, b: str) -> str:
@@ -61,7 +61,7 @@ def visible_after(conversation: Conversation, user_id: str):
     return conversation.a_clear if user_id == conversation.a else conversation.b_clear
 
 
-def conversation_json(db: Session, conversation: Conversation, user_id: str, after_time: int = 0, declared=False):
+def conversation_json(db: Session, conversation: Conversation, user_id: str, after_time: int = 0):
     clear = visible_after(conversation, user_id)
     read = conversation.a_read if user_id == conversation.a else conversation.b_read
     peer_id = conversation.b if user_id == conversation.a else conversation.a
@@ -79,16 +79,16 @@ def conversation_json(db: Session, conversation: Conversation, user_id: str, aft
     result = {"id": conversation.id, "peer": user_json(peer), "unread": unread,
             "clear_seq": clear, "read_seq": read,
             "can_send": bool(contact and contact.state == "accepted" and peer.active),
-            "last_message": message_for_client(message_json(db, last), declared) if last else None,
-            "can_recall": can_recall(db, conversation, declared)}
+            "last_message": message_json(db, last) if last else None,
+            "can_recall": True}
     if viewer.is_admin and viewer.read_receipts_enabled:
         result["peer_read_seq"] = conversation.b_read if user_id == conversation.a else conversation.a_read
     return result
 
 
-def all_conversations(db: Session, user_id: str, after_time: int = 0, declared=False):
+def all_conversations(db: Session, user_id: str, after_time: int = 0):
     rows = db.scalars(select(Conversation).where(or_(Conversation.a == user_id, Conversation.b == user_id)))
-    result = [conversation_json(db, row, user_id, after_time, declared) for row in rows
+    result = [conversation_json(db, row, user_id, after_time) for row in rows
               if not (row.a_hidden if row.a == user_id else row.b_hidden)]
     return sorted(result, key=lambda c: (c["last_message"] or {}).get("created_at", 0), reverse=True)
 

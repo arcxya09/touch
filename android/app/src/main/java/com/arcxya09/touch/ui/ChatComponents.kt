@@ -67,7 +67,7 @@ import androidx.compose.ui.unit.dp
 }
 
 @Composable internal fun MessageActionsMenu(expanded: Boolean, onDismiss: () -> Unit,
-    valid: Boolean, recalled: Boolean, isText: Boolean, own: Boolean, canRecall: Boolean, busy: Boolean,
+    valid: Boolean, recalled: Boolean, isText: Boolean, own: Boolean, busy: Boolean,
     onQuote: () -> Unit, onCopy: () -> Unit, onSelect: () -> Unit, onDelete: () -> Unit, onRecall: () -> Unit) {
     DropdownMenu(expanded, onDismiss) {
         if (valid && !recalled) DropdownMenuItem(text = { Text("引用回复") }, onClick = onQuote)
@@ -76,12 +76,7 @@ import androidx.compose.ui.unit.dp
             DropdownMenuItem(text = { Text("选择文字") }, onClick = onSelect)
         }
         DropdownMenuItem(text = { Text("本地删除") }, enabled = valid && !busy, onClick = onDelete)
-        if (own && valid && !recalled) DropdownMenuItem(text = {
-            Column {
-                Text("撤回消息")
-                if (!canRecall) Text("对方需更新并打开 Touch", style = MaterialTheme.typography.labelSmall)
-            }
-        }, enabled = canRecall && !busy, onClick = onRecall)
+        if (own && valid && !recalled) DropdownMenuItem(text = { Text("撤回消息") }, enabled = !busy, onClick = onRecall)
     }
 }
 

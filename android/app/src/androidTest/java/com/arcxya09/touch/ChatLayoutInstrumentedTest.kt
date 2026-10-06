@@ -146,23 +146,24 @@ class ChatLayoutInstrumentedTest {
     @Test fun ownMessageCanRecallFromLongPressMenu() {
         var recalls = 0
         compose.setContent {
-            TouchTheme { MessageMenuFixture(canRecall = true, onRecall = { recalls++ }) }
+            TouchTheme { MessageMenuFixture(onRecall = { recalls++ }) }
         }
         compose.onNodeWithTag("menu-message-text").performTouchInput { longClick() }
+        compose.onNodeWithText("对方需更新并打开 Touch").assertDoesNotExist()
         compose.onNodeWithText("撤回消息").assertIsEnabled().performClick()
         compose.onNodeWithText("撤回消息").assertDoesNotExist()
         compose.runOnIdle { assertEquals(1, recalls) }
     }
 
-    @Test fun unavailableRecallIsVisibleWithExplanationAndCannotRun() {
+    @Test fun busyRecallIsVisibleButCannotRunAndRequiresNoPeerUpdate() {
         var recalls = 0
         compose.setContent {
-            TouchTheme { MessageMenuFixture(canRecall = false, onRecall = { recalls++ }) }
+            TouchTheme { MessageMenuFixture(busy = true, onRecall = { recalls++ }) }
         }
         compose.onNodeWithTag("menu-message-text").performTouchInput { longClick() }
         val action = compose.onNodeWithText("撤回消息")
         action.assertIsDisplayed().assertIsNotEnabled()
-        compose.onNodeWithText("对方需更新并打开 Touch").assertIsDisplayed()
+        compose.onNodeWithText("对方需更新并打开 Touch").assertDoesNotExist()
         action.performTouchInput { click() }
         compose.runOnIdle { assertEquals(0, recalls) }
         action.assertIsDisplayed()
@@ -176,7 +177,7 @@ class ChatLayoutInstrumentedTest {
             TouchTheme {
                 key(selected) {
                     MessageMenuFixture(own = selected.own, valid = selected.valid, recalled = selected.recalled,
-                        canRecall = true, initiallyExpanded = true)
+                        initiallyExpanded = true)
                 }
             }
         }
@@ -190,7 +191,7 @@ class ChatLayoutInstrumentedTest {
 
     private fun assertMessageMenuKeepsLayout(isText: Boolean, quoted: Boolean) {
         compose.setContent {
-            TouchTheme { MessageMenuFixture(isText = isText, quoted = quoted, canRecall = true) }
+            TouchTheme { MessageMenuFixture(isText = isText, quoted = quoted) }
         }
         val bubble = compose.onNodeWithTag("menu-message-bubble", useUnmergedTree = true)
         val status = compose.onNodeWithTag("menu-message-status", useUnmergedTree = true)
@@ -213,7 +214,7 @@ class ChatLayoutInstrumentedTest {
 
     @OptIn(ExperimentalFoundationApi::class)
     @Composable private fun MessageMenuFixture(isText: Boolean = true, quoted: Boolean = false,
-        own: Boolean = true, valid: Boolean = true, recalled: Boolean = false, canRecall: Boolean = true,
+        own: Boolean = true, valid: Boolean = true, recalled: Boolean = false, busy: Boolean = false,
         initiallyExpanded: Boolean = false, onRecall: () -> Unit = {}) {
         var expanded by remember { mutableStateOf(initiallyExpanded) }
         val showMenu = { if (valid) expanded = true; Unit }
@@ -222,7 +223,7 @@ class ChatLayoutInstrumentedTest {
             MessageBubbleFrame(own, modifier = Modifier.widthIn(max = 260.dp).testTag("menu-message-bubble")
                 .then(if (!isText) Modifier.combinedClickable(onClick = {}, onLongClick = showMenu) else Modifier),
                 menu = {
-                    MessageActionsMenu(expanded, dismiss, valid, recalled, isText, own, canRecall, false,
+                    MessageActionsMenu(expanded, dismiss, valid, recalled, isText, own, busy,
                         onQuote = dismiss, onCopy = dismiss, onSelect = dismiss, onDelete = dismiss,
                         onRecall = { onRecall(); expanded = false })
                 }) {
