@@ -31,11 +31,12 @@ class AppViewModel internal constructor(application: Application, val repository
     private val updatePreferences = app.getSharedPreferences("update_checks", Application.MODE_PRIVATE)
     var includePrereleases by mutableStateOf(updatePreferences.getBoolean("include_prereleases", false)); private set
     private val displayPreferences = app.getSharedPreferences("display_preferences", Application.MODE_PRIVATE)
-    var lockChatRotation by mutableStateOf(displayPreferences.getBoolean("lock_chat_rotation", false)); private set
+    // Keep the existing preference key so upgrades retain the user's choice.
+    var lockRotation by mutableStateOf(displayPreferences.getBoolean("lock_chat_rotation", false)); private set
     var rotateImagePreview by mutableStateOf(displayPreferences.getBoolean("rotate_image_preview", false)); private set
-    fun setChatRotationLocked(value: Boolean) {
+    fun setRotationLocked(value: Boolean) {
         displayPreferences.edit().putBoolean("lock_chat_rotation", value).apply()
-        lockChatRotation = value
+        lockRotation = value
     }
     fun setImagePreviewRotation(value: Boolean) {
         displayPreferences.edit().putBoolean("rotate_image_preview", value).apply()

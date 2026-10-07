@@ -13,6 +13,7 @@ import com.arcxya09.touch.AppViewModel
 import com.arcxya09.touch.MainActivity
 import com.arcxya09.touch.Screen
 import com.arcxya09.touch.Operation
+import com.arcxya09.touch.screenOrientation
 import com.arcxya09.touch.data.ConnectionStatus
 
 @Composable fun TouchRoot(vm: AppViewModel, activity: MainActivity) {
@@ -64,7 +65,12 @@ import com.arcxya09.touch.data.ConnectionStatus
             } else snackbar.currentSnackbarData?.dismiss()
         }
         LaunchedEffect(vm.safety, vm.initialized) { activity.applySafety() }
-        SideEffect { activity.renderedGate() }
+        // Read the policy during composition so preference and preview changes apply immediately.
+        val attachment = vm.preview?.first
+        val orientation = screenOrientation(vm.destination,
+            vm.mayShowChat && vm.user?.mustChange == false && attachment != null, vm.lockRotation,
+            vm.rotateImagePreview, attachment?.let { it.kind == "image" || it.mime.startsWith("image/") } == true)
+        SideEffect { activity.renderedGate(orientation) }
         if (vm.mayShowChat && vm.showDiagnostics) DiagnosticsDialog(vm)
         if (vm.mayShowSession) {
             vm.error?.let { message ->

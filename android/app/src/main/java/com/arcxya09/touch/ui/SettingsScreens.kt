@@ -44,10 +44,10 @@ import com.arcxya09.touch.Screen
         SectionLabel("屏幕旋转")
         SettingsGroup {
             Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
-                ToggleSetting("聊天页锁定竖屏", checked = vm.lockChatRotation, onChange = vm::setChatRotationLocked)
+                ToggleSetting("锁定竖屏", checked = vm.lockRotation, onChange = vm::setRotationLocked)
                 Column(Modifier.padding(start = 20.dp)) {
                     ToggleSetting("允许图片预览旋转", checked = vm.rotateImagePreview,
-                        enabled = vm.lockChatRotation, onChange = vm::setImagePreviewRotation)
+                        enabled = vm.lockRotation, onChange = vm::setImagePreviewRotation)
                 }
             }
         }

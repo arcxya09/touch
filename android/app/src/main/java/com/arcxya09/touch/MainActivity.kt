@@ -108,11 +108,8 @@ class MainActivity : ComponentActivity(), android.hardware.SensorEventListener {
         super.onPause()
     }
     override fun onResume() { super.onResume(); resumed = true; model.resume(); applySafety() }
-    fun renderedGate() {
+    fun renderedGate(orientation: Int) {
         if (exiting) return
-        val attachment = model.preview?.first
-        val orientation = screenOrientation(model.destination, model.mayShowChat, model.lockChatRotation,
-            model.rotateImagePreview, attachment?.let { it.kind == "image" || it.mime.startsWith("image/") } == true)
         if (requestedOrientation != orientation) requestedOrientation = orientation
         applySafety()
         model.renderedChat()
