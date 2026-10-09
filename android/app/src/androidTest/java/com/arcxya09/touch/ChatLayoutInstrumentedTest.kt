@@ -2,6 +2,7 @@ package com.arcxya09.touch
 
 import android.graphics.Bitmap
 import android.os.ParcelFileDescriptor
+import android.view.View
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -19,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -26,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.test.espresso.Espresso
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.UiDevice
 import com.arcxya09.touch.ui.*
 import com.arcxya09.touch.data.*
 import kotlinx.coroutines.CoroutineScope
@@ -79,22 +82,37 @@ class ChatLayoutInstrumentedTest {
         var visible by mutableStateOf(true)
         var submitted = 0
         var cancelled = 0
+        var dialogView: View? = null
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        fun pressBackOnFocusedDialog() {
+            compose.onNodeWithText("selected-image.png").assertIsDisplayed()
+            compose.waitUntil(10000) {
+                compose.runOnUiThread { dialogView?.let { it.isAttachedToWindow && it.hasWindowFocus() } == true }
+            }
+            assertTrue("Back must be injected into the current focused dialog", device.pressBack())
+            compose.waitForIdle()
+        }
         compose.setContent { TouchTheme {
             if (visible) SelectionConfirmationDialog(false, working, true, { visible = false }, { working = true; submitted++ },
                 cancel = { cancelled++; working = false; visible = false }) {
+                val view = LocalView.current
+                DisposableEffect(view) {
+                    dialogView = view
+                    onDispose { if (dialogView === view) dialogView = null }
+                }
                 Text("selected-image.png")
             }
         } }
         compose.onNodeWithText("发送").performClick()
         compose.onNodeWithText("取消上传").assertIsEnabled()
         compose.onNodeWithText("发送").assertIsNotEnabled()
-        Espresso.pressBack()
+        pressBackOnFocusedDialog()
         compose.onNodeWithText("selected-image.png").assertIsDisplayed()
         compose.runOnIdle { assertEquals(1, submitted); assertEquals(0, cancelled); assertTrue(visible) }
         compose.onNodeWithText("取消上传").performClick()
         compose.onNodeWithText("selected-image.png").assertDoesNotExist()
         compose.runOnIdle { assertEquals(1, cancelled); assertFalse(working); visible = true }
-        Espresso.pressBack()
+        pressBackOnFocusedDialog()
         compose.onNodeWithText("selected-image.png").assertDoesNotExist()
     }
 

@@ -7,6 +7,7 @@ import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
 import android.net.Uri
 import android.provider.MediaStore
+import android.util.Log
 import android.view.WindowManager
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.*
@@ -19,6 +20,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
 import com.arcxya09.touch.data.TouchDatabase
 import kotlinx.coroutines.runBlocking
@@ -159,21 +161,19 @@ class PrivacyInstrumentedTest {
             put(MediaStore.Images.ImageColumns.DATE_TAKEN, System.currentTimeMillis())
             put(MediaStore.MediaColumns.IS_PENDING, 1)
         }))
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        var stage = "publish-fixture"
         try {
             requireNotNull(resolver.openOutputStream(media)).use { it.write(png) }
             assertEquals(1, resolver.update(media, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null))
             compose.onNodeWithContentDescription("添加图片或文件").performClick()
             compose.onNodeWithText("图片").performClick()
-            val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+            stage = "open-system-picker"
             assertTrue(device.wait(Until.gone(By.pkg(app.packageName).depth(0)), 10000))
             compose.waitUntil(10000) { model.locked && !model.mayShowChat }
-            // Older releases use DocumentsUI, current photo pickers expose either a thumbnail
-            // resource or a dated accessibility label. The fixture is the newest local photo.
-            val photo = device.wait(Until.findObject(By.text(name)), 2000)
-                ?: device.wait(Until.findObject(By.res(Pattern.compile(".*:id/icon_thumbnail"))), 5000)
-                ?: device.wait(Until.findObject(By.desc(Pattern.compile("(?i).*photo taken.*|.*拍摄.*照片.*|.*照片.*拍摄.*"))), 5000)
-            assertNotNull("The generated MediaStore photo must be selectable in the system picker", photo)
-            photo!!.click()
+            stage = "select-system-photo"
+            selectSystemPhoto(device, name)
+            stage = "return-to-private-chat"
             compose.waitUntil(15000) { model.pendingSelection != null && model.mayShowChat }
             val selected = requireNotNull(model.pendingSelection).first
             assertEquals("content", selected.scheme)
@@ -190,6 +190,7 @@ class PrivacyInstrumentedTest {
             compose.waitUntil(10000) {
                 compose.onAllNodesWithContentDescription("所选图片预览").fetchSemanticsNodes().isNotEmpty()
             }
+            stage = "confirm-send"
             compose.onNodeWithText("发送").assertIsEnabled().performClick()
             compose.waitUntil(20000) {
                 !model.isWorking(Operation.Attachment) && model.pendingSelection == null &&
@@ -202,6 +203,7 @@ class PrivacyInstrumentedTest {
             assertFalse(message.pending)
             assertEquals(checksum, requireNotNull(message.file).sha256)
             assertNull(model.error)
+            stage = "reconcile-history"
             repeat(2) { app.repository.sync(); app.repository.history(cid) }
             val rows = app.repository.messages(cid).filter { it.clientId == message.clientId && it.senderId == owner }
             assertEquals("Sync and history must reconcile the same image rather than duplicate it", listOf(message.id), rows.map { it.id })
@@ -210,9 +212,71 @@ class PrivacyInstrumentedTest {
                 remote.getJSONObject(it).optString("client_id") == message.clientId &&
                     remote.getJSONObject(it).optString("sender_id") == owner
             })
+        } catch (failure: Throwable) {
+            recordPickerFailure(device, model, stage)
+            throw failure
         } finally {
             assertEquals("Remove only this test's generated gallery image", 1, resolver.delete(media, null, null))
         }
+    }
+    private fun selectSystemPhoto(device: UiDevice, name: String) {
+        // Wait for an actual picker root: Touch disappearing also occurs during the transition.
+        val root = device.wait(Until.findObject(By.pkg(Pattern.compile(
+            "com\\.(?:google\\.)?android\\.(?:documentsui|photopicker|providers\\.media(?:\\.module)?)"
+        )).depth(0)), 10000)
+        assertNotNull("The system picker must finish opening", root)
+        val pickerPackage = root!!.applicationPackage
+        val photo = if (pickerPackage.endsWith(".documentsui")) {
+            // API 29/31 use DocumentsUI's Recent directory. Its grid uses icon_thumb, not
+            // PhotoPicker's icon_thumbnail; wait for the directory and target its exact name.
+            assertTrue("DocumentsUI must load its directory", device.wait(Until.hasObject(By.res(pickerPackage, "dir_list")), 10000))
+            device.wait(Until.findObject(By.pkg(pickerPackage).text(name)), 5000)
+        } else {
+            // The only fixture image is also the newest local photo. Its bytes are checked
+            // after return and before sending, so another image can never pass this test.
+            device.wait(Until.findObject(By.res(pickerPackage, "icon_thumbnail")), 5000)
+                ?: device.wait(Until.findObject(By.pkg(pickerPackage).desc(Pattern.compile(
+                    "(?i).*photo taken.*|.*拍摄.*照片.*|.*照片.*拍摄.*"
+                ))), 5000)
+        }
+        assertNotNull("The generated MediaStore photo must be selectable in $pickerPackage", photo)
+        photo!!.click()
+        if (pickerPackage.endsWith(".photopicker")) {
+            // The standalone picker now confirms single selections via SelectionBar too.
+            // Read its own localized label instead of assuming the language or clicking Preview.
+            val resources = app.packageManager.getResourcesForApplication(pickerPackage)
+            val doneId = resources.getIdentifier("photopicker_done_button_label", "string", pickerPackage)
+                .takeIf { it != 0 } ?: resources.getIdentifier("photopicker_done_button_label", "string", "com.android.photopicker")
+            assertTrue("The standalone picker must expose its confirmation label", doneId != 0)
+            val confirmation = device.wait(Until.findObject(By.pkg(pickerPackage).text(resources.getString(doneId)).enabled(true)), 5000)
+            assertNotNull("Selecting a photo must expose the standalone picker's Done action", confirmation)
+            clickPickerAction(confirmation!!)
+        }
+    }
+    private fun clickPickerAction(label: UiObject2) {
+        var target = label
+        while (!target.isClickable) {
+            val parent = target.parent ?: break
+            if (parent.applicationPackage != label.applicationPackage) break
+            target = parent
+        }
+        assertTrue("The picker confirmation must have a click action", target.isClickable)
+        target.click()
+    }
+    private fun recordPickerFailure(device: UiDevice, model: AppViewModel, stage: String) {
+        // Only the loopback fixture reaches this test. Keep diagnostics in logcat as well as
+        // on-device files so CI's existing per-test log artifact preserves the failing UI.
+        runCatching {
+            val state = "stage=$stage package=${device.currentPackageName} locked=${model.locked} " +
+                "mayShowChat=${model.mayShowChat} page=${model.destination} " +
+                "hasRequest=${model.hasExternalSelection} hasResult=${model.pendingSelection != null}"
+            val xml = ByteArrayOutputStream().use { output -> device.dumpWindowHierarchy(output); output.toString("UTF-8") }
+            val folder = File(app.getExternalFilesDir(null) ?: app.cacheDir, "picker-test-diagnostics").apply { mkdirs() }
+            File(folder, "selection-state.txt").writeText(state)
+            File(folder, "selection-window.xml").writeText(xml)
+            Log.e("TouchPickerTest", state)
+            xml.chunked(3000).forEachIndexed { index, part -> Log.e("TouchPickerTest", "hierarchy[$index]=$part") }
+        }.onFailure { Log.e("TouchPickerTest", "Unable to collect picker diagnostics at $stage", it) }
     }
     @Test fun directPickerResultsKeepTheirOriginalPageAndCannotBeReplayed() {
         val (model, _) = launchConversation()
