@@ -7,6 +7,8 @@ import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
 import android.graphics.Rect
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
 import android.os.SystemClock
 import android.provider.MediaStore
 import android.util.Log
@@ -157,10 +159,14 @@ class PrivacyInstrumentedTest {
         } finally { bitmap.recycle() }
         val checksum = MessageDigest.getInstance("SHA-256").digest(png).joinToString("") { "%02x".format(it) }
         val resolver = app.contentResolver
-        val media = requireNotNull(resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, ContentValues().apply {
+        // Android 10 can retain FLAG_EMPTY for the Images root after a first MediaStore
+        // insertion. Its always-available Downloads root exposes the same real PNG.
+        val useDownloads = Build.VERSION.SDK_INT == Build.VERSION_CODES.Q
+        val collection = if (useDownloads) MediaStore.Downloads.EXTERNAL_CONTENT_URI else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        val media = requireNotNull(resolver.insert(collection, ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, name)
             put(MediaStore.MediaColumns.MIME_TYPE, "image/png")
-            put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/TouchPickerTests")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, if (useDownloads) Environment.DIRECTORY_DOWNLOADS else "Pictures/TouchPickerTests")
             put(MediaStore.Images.ImageColumns.DATE_TAKEN, System.currentTimeMillis())
             put(MediaStore.MediaColumns.IS_PENDING, 1)
         }))
@@ -188,7 +194,7 @@ class PrivacyInstrumentedTest {
             assertTrue(device.wait(Until.gone(By.pkg(app.packageName).depth(0)), 10000))
             compose.waitUntil(10000) { model.locked && !model.mayShowChat }
             stage = "select-system-photo"
-            selectSystemPhoto(device, name) { stage = it }
+            selectSystemPhoto(device, name, useDownloads) { stage = it }
             stage = "return-to-private-chat"
             compose.waitUntil(15000) { model.pendingSelection != null && model.mayShowChat }
             val selected = requireNotNull(model.pendingSelection).first
@@ -235,7 +241,7 @@ class PrivacyInstrumentedTest {
             assertEquals("Remove only this test's generated gallery image", 1, resolver.delete(media, null, null))
         }
     }
-    private fun selectSystemPhoto(device: UiDevice, name: String, stage: (String) -> Unit) {
+    private fun selectSystemPhoto(device: UiDevice, name: String, useDownloads: Boolean, stage: (String) -> Unit) {
         // Wait for an actual picker root: Touch disappearing also occurs during the transition.
         val root = device.wait(Until.findObject(By.pkg(Pattern.compile(
             "com\\.(?:google\\.)?android\\.(?:documentsui|photopicker|providers\\.media(?:\\.module)?)"
@@ -248,11 +254,16 @@ class PrivacyInstrumentedTest {
             assertTrue("DocumentsUI must load its directory", device.wait(Until.hasObject(By.res(pickerPackage, "dir_list")), 10000))
             stage("open-documents-roots")
             clickPickerAction(device, "DocumentsUI roots", By.pkg(pickerPackage).desc("Show roots"))
-            stage("open-images-root")
-            clickPickerAction(device, "Images root", By.pkg(pickerPackage).res("android:id/title").text("Images"))
-            stage("open-fixture-album")
-            clickPickerAction(device, "generated photo album", By.pkg(pickerPackage).text("TouchPickerTests"),
-                By.pkg(pickerPackage).desc(Pattern.compile("TouchPickerTests(?:,.*)?")))
+            if (useDownloads) {
+                stage("open-downloads-root")
+                clickPickerAction(device, "Downloads root", By.pkg(pickerPackage).res("android:id/title").text("Downloads"))
+            } else {
+                stage("open-images-root")
+                clickPickerAction(device, "Images root", By.pkg(pickerPackage).res("android:id/title").text("Images"))
+                stage("open-fixture-album")
+                clickPickerAction(device, "generated photo album", By.pkg(pickerPackage).text("TouchPickerTests"),
+                    By.pkg(pickerPackage).desc(Pattern.compile("TouchPickerTests(?:,.*)?")))
+            }
             stage("select-fixture-photo")
             // DocumentsUI may merge the filename and metadata into the row description.
             // Its small-grid Preview action overlaps the thumbnail's upper half.

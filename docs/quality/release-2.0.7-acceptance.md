@@ -10,4 +10,6 @@
 
 公开正式版及 Latest 沿用使用者的直接正式发布授权。由于实体机与真实历史升级证据仍不完整，不伪造 Record independent release validation 记录或将缺失项填为 passed，严格验收脚本保持不变。公开后核对 Latest、更新清单和三份附件指向同一版本。
 
+Android 10 的设备现场还出现首张合成图片已发布、字节可读，但 Images 根仍被缓存为空。核对该版本 [MediaProvider](https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android10-release/src/com/android/providers/media/MediaProvider.java) 与 [MediaDocumentsProvider](https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android10-release/src/com/android/providers/media/MediaDocumentsProvider.java) 源码：插入通知使用 `external_primary`，根缓存失效处理却仅接受 `external`。仅 API 29 的测试图片改放 MediaStore.Downloads，并经真实图片选择器的 Downloads 根选择；该系统 [DownloadStorageProvider](https://android.googlesource.com/platform/packages/providers/DownloadProvider/+/refs/heads/android10-release/src/com/android/providers/downloads/DownloadStorageProvider.java) 直接枚举已发布下载，不依赖 Images 空根缓存。唯一文件名、返回字节、隐私状态、发送与去重断言不变，不修改产品权限或强行重置系统应用。
+
 本次保持 Room schema、现有网络协议及撤回行为；待发状态增加在现有加密 JSON 中，旧记录按等待确认读取，内部状态字段不发送到服务端，重试继续使用原 client_id。服务端业务和数据库无需部署变更。隐私选择器恢复授权只保存在内存，离开、锁屏、重建或身份不匹配均不能借此解锁。
