@@ -84,7 +84,7 @@ internal enum class DesignFixture { Timer, Inbox, Chat }
             ChatBubbleSurface(own, modifier = Modifier.widthIn(max = bubbleWidth)) {
                 Column(Modifier.padding(horizontal = 14.dp, vertical = 11.dp)) { MessageText(text, {}, onLongPress = {}) }
             }
-            if (failed) PendingMessageActions(false, false, {}, {})
+            if (failed) PendingMessageActions(false, false, {}, {}, com.arcxya09.touch.data.PendingDelivery.Failed)
             else Text(time + if (own) " · 已发送" else "", Modifier.padding(horizontal = 4.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }

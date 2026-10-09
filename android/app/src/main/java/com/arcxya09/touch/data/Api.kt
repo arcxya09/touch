@@ -23,8 +23,10 @@ import okio.ForwardingSource
 import okio.Buffer
 import okio.buffer
 
-class Api(secure: SecureStore, private val baseUrl: String = BuildConfig.API_BASE) {
-    private val credentials = SecureSessionStore(secure)
+class CredentialStorageException(cause: Exception) : Exception("无法保存登录凭据，请检查设备存储空间后重试", cause)
+
+class Api(secure: SecureStore, private val baseUrl: String = BuildConfig.API_BASE,
+          private val credentials: SecureSessionStore = SecureSessionStore(secure)) {
     val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS)
         .pingInterval(25, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).writeTimeout(120, TimeUnit.SECONDS).build()
     private val jsonClient = client.newBuilder().callTimeout(20, TimeUnit.SECONDS).build()
@@ -36,7 +38,14 @@ class Api(secure: SecureStore, private val baseUrl: String = BuildConfig.API_BAS
     suspend fun load() = credentials.load()
     fun sealCredentials() = credentials.seal()
     suspend fun save(value: JSONObject?) = refreshLock.withLock { saveLocked(value) }
-    private suspend fun saveLocked(value: JSONObject?) = credentials.save(value)
+    private suspend fun saveLocked(value: JSONObject?) {
+        try { credentials.save(value) }
+        catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            // A failed token refresh write is local storage failure, never ambiguous delivery.
+            throw CredentialStorageException(e)
+        }
+    }
     suspend fun updateUser(value: JSONObject) = refreshLock.withLock {
         session?.takeIf { it.getJSONObject("user").getString("id") == value.getString("id") }?.let {
             saveLocked(JSONObject(it.toString()).put("user", value))

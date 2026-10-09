@@ -88,7 +88,9 @@ import com.arcxya09.touch.data.Person
                                 when {
                                     contact.state == "accepted" -> {
                                         TextButton(onClick = { remove = contact.peer }, enabled = !working) { Text("删除") }
-                                        FilledTonalButton(onClick = { contact.conversationId?.let(vm::openConversation) }, enabled = !working) { Text("聊天") }
+                                        FilledTonalButton(onClick = { contact.conversationId?.let(vm::openConversation) }, enabled = !working && contact.conversationId != null) {
+                                            Text(if (contact.conversationId == null) "正在同步会话…" else "聊天")
+                                        }
                                     }
                                     contact.incoming -> {
                                         TextButton(onClick = { vm.contactAction(contact.peer, "reject") }, enabled = !working) { Text("拒绝") }

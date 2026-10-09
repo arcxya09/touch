@@ -193,7 +193,8 @@ import java.time.format.DateTimeFormatter
                     }
             }
             if (selecting) TextButton(onClick = { selecting = false }) { Text("完成选择") }
-            if (message.pending) PendingMessageActions(message.id in vm.sendingIds, vm.isWorking(Operation.Send), { vm.retry(message.id) }, { vm.discard(message.id) })
+            if (message.pending) PendingMessageActions(message.id in vm.sendingIds,
+                vm.isWorking(Operation.Send) || vm.isWorking(Operation.Attachment), { vm.retry(message.id) }, { vm.discard(message.id) }, message.pendingDelivery)
             else Row(Modifier.padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(clockTime(message.createdAt) + if (own && !recalled) " · 已发送" else "", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 val read = vm.conversations.firstOrNull { it.id == message.conversationId }?.peerReadSeq ?: 0

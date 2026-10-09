@@ -148,6 +148,7 @@ class Repository(private val context: Context, private val database: () -> Touch
                 }
             }
         }
+        if (changed) app.alerts.clearMessages()
         val drained = cleanup.drain()
         migratePlainAttachments()
         val now = System.currentTimeMillis()
@@ -259,7 +260,8 @@ class Repository(private val context: Context, private val database: () -> Touch
             val json = JSONObject(it.body)
             ChatMessage(it.id, cid, api.user?.id.orEmpty(), it.id, Long.MAX_VALUE, json.getString("kind"), json.optString("text"), it.createdAt,
                 json.optString("attachment_id").takeIf(String::isNotBlank)?.let { id -> cache.get("attachment", id)?.let { file -> FileItem.parse(JSONObject(file.json)) } }, true,
-                json.optJSONObject("reply_to")?.let(ReplyRef::parse))
+                json.optJSONObject("reply_to")?.let(ReplyRef::parse),
+                PendingDelivery.entries.firstOrNull { state -> state.name == json.optString("_delivery_state") } ?: PendingDelivery.Unconfirmed)
         }
         messages + pending
     }
@@ -380,12 +382,32 @@ class Repository(private val context: Context, private val database: () -> Touch
         contentRevision.value++
         app.alerts.clearMessages()
     } } }
-    suspend fun recallMessage(message: ChatMessage) {
+    suspend fun recallMessage(message: ChatMessage) = syncLock.withLock { withContext(Dispatchers.IO) {
+        check(!message.pending && message.senderId == api.user?.id && localOwner == api.user?.id) { "只能撤回自己已发送的消息" }
         api.json("/api/v1/conversations/${message.conversationId}/messages/${message.id}/recall", "POST", JSONObject())
-        sync()
-    }
+        // The server has confirmed erasure. A later sync failure must neither undo that
+        // result nor leave the sender's original content accessible until connectivity returns.
+        withContext(kotlinx.coroutines.NonCancellable) {
+            val tombstone = JSONObject().put("id", message.id).put("conversation_id", message.conversationId)
+                .put("sender_id", message.senderId).put("client_id", message.clientId).put("seq", message.seq)
+                .put("kind", "recalled").put("text", "").put("created_at", message.createdAt)
+                .put("attachment", JSONObject.NULL).put("reply_to", JSONObject.NULL)
+            db.runInTransaction {
+                storeMessage(tombstone)
+                cache.get("conversation", message.conversationId)?.let { item ->
+                    val conversation = JSONObject(item.json)
+                    if (conversation.optJSONObject("last_message")?.optString("id") == message.id) {
+                        conversation.put("last_message", tombstone)
+                        cache.put(TouchDatabase.Item("conversation", item.id, sanitizeConversation(conversation).toString()))
+                    }
+                }
+            }
+            cleanup.drain()
+        }
+    } }
     private fun clearMessages(cid: String, through: Long) {
-        if (through > (cache.get("meta", "clear:$cid")?.json?.toLongOrNull() ?: 0L)) {
+        val advanced = through > (cache.get("meta", "clear:$cid")?.json?.toLongOrNull() ?: 0L)
+        if (advanced) {
             accessGeneration.incrementAndGet()
             cache.put(TouchDatabase.Item("meta", "clear:$cid", through.toString()))
         }
@@ -396,6 +418,7 @@ class Repository(private val context: Context, private val database: () -> Touch
             }
             cache.remove("message", it.id)
         }
+        if (advanced) app.alerts.clearMessages()
     }
 
     private fun deleteLocalConversation(cid: String, through: Long, discardPending: Boolean = false) {
@@ -477,11 +500,29 @@ class Repository(private val context: Context, private val database: () -> Touch
         result.getBoolean("has_more")
     } }
     val sending = kotlinx.coroutines.flow.MutableStateFlow<Set<String>>(emptySet())
+    private val sendingCounts = mutableMapOf<String, Int>()
+    private suspend fun <T> whileSending(id: String, block: suspend () -> T): T {
+        synchronized(sendingCounts) {
+            sendingCounts[id] = (sendingCounts[id] ?: 0) + 1
+            sending.value = sendingCounts.keys.toSet()
+        }
+        try { return block() } finally {
+            synchronized(sendingCounts) {
+                val remaining = (sendingCounts[id] ?: 1) - 1
+                if (remaining == 0) sendingCounts.remove(id) else sendingCounts[id] = remaining
+                sending.value = sendingCounts.keys.toSet()
+            }
+        }
+    }
     suspend fun send(cid: String, text: String = "", attachment: FileItem? = null, reply: ReplyRef? = null,
                      queued: suspend () -> Unit = {}): String = withContext(Dispatchers.IO) {
-        if (reply != null) check(original(cid, reply) != null) { "原消息不可用，请移除引用后再发送" }
         val id = UUID.randomUUID().toString()
+        val owner = api.user?.id ?: error("请先登录")
+        whileSending(id) { syncLock.withLock {
+        check(api.user?.id == owner && localOwner == owner) { "账号已变更，请重新发送" }
+        if (reply != null) check(original(cid, reply) != null) { "原消息不可用，请移除引用后再发送" }
         val body = JSONObject().put("client_id", id).put("kind", attachment?.kind ?: "text").put("text", text)
+            .put("_delivery_state", PendingDelivery.Queued.name)
         if (attachment != null) body.put("attachment_id", attachment.id)
         if (reply != null) body.put("reply_to_id", reply.id).put("reply_to", reply.json())
         db.runInTransaction {
@@ -496,21 +537,44 @@ class Repository(private val context: Context, private val database: () -> Touch
         }
         nextMaintenanceAt = 0L
         queued()
-        retry(id)
+        deliverPending(id)
+        } }
         id
     }
-    suspend fun retry(id: String) = syncLock.withLock { withContext(Dispatchers.IO) {
+    suspend fun retry(id: String) = whileSending(id) { syncLock.withLock { withContext(Dispatchers.IO) { deliverPending(id) } } }
+    private suspend fun deliverPending(id: String) {
         purge()
-        val item = cache.pendingItems().firstOrNull { it.id == id } ?: return@withContext
+        val item = cache.pendingItems().firstOrNull { it.id == id } ?: return
         val body = JSONObject(item.body)
-        body.optJSONObject("reply_to")?.let { check(original(item.conversationId, ReplyRef.parse(it)) != null) { "原消息不可用，请删除待发送项并重新编辑" } }
-        body.put("after_time", cutoff()).remove("reply_to")
-        sending.value = sending.value + id
-        try {
-            val result = api.json("/api/v1/conversations/${item.conversationId}/messages", "POST", body)
-            db.runInTransaction { storeMessage(result) }
-        } finally { sending.value = sending.value - id }
-    } }
+        fun remember(state: PendingDelivery) {
+            body.put("_delivery_state", state.name)
+            cache.pending(TouchDatabase.Outbox(item.id, item.conversationId, body.toString(), item.createdAt))
+        }
+        // Once an attempt starts, a lost response or process death cannot prove rejection.
+        remember(PendingDelivery.Unconfirmed)
+        val result = try {
+            body.optJSONObject("reply_to")?.let { check(original(item.conversationId, ReplyRef.parse(it)) != null) { "原消息不可用，请删除待发送项并重新编辑" } }
+            val request = JSONObject(body.toString()).put("after_time", cutoff())
+            request.remove("reply_to"); request.remove("_delivery_state")
+            api.json("/api/v1/conversations/${item.conversationId}/messages", "POST", request)
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            if (e is org.json.JSONException) throw e
+            if (e is java.io.IOException ||
+                (e is ApiException && (e.status >= 500 || e.status == 408 || e.status == 429))) {
+                connection.failedWith(e)
+                return
+            }
+            remember(PendingDelivery.Failed)
+            throw e
+        }
+        // Storage failures must remain visible; they are not network uncertainty.
+        db.runInTransaction { storeMessage(result) }
+    }
+    @Synchronized fun requestSync() {
+        socketEvent?.invoke()
+        com.arcxya09.touch.notifications.AlertService.wake()
+    }
     suspend fun discard(id: String) = withContext(Dispatchers.IO) { cache.removePending(id) }
     suspend fun read(cid: String, seq: Long) { api.json("/api/v1/conversations/$cid/read", "POST", JSONObject().put("seq", seq)) }
     suspend fun deleteConversation(cid: String) = syncLock.withLock { withContext(Dispatchers.IO) {
@@ -522,8 +586,34 @@ class Repository(private val context: Context, private val database: () -> Touch
         val encoded = java.net.URLEncoder.encode(username.trim(), "UTF-8")
         return Person.parse(api.json("/api/v1/contacts/search?username=$encoded"))
     }
-    suspend fun request(person: Person) { api.json("/api/v1/contacts/requests", "POST", JSONObject().put("user_id", person.id)); sync() }
-    suspend fun contactAction(id: String, action: String) { api.json("/api/v1/contacts/$id", "POST", JSONObject().put("action", action)); sync() }
+    suspend fun request(person: Person): String = syncLock.withLock {
+        val result = api.json("/api/v1/contacts/requests", "POST", JSONObject().put("user_id", person.id))
+        requestSync()
+        result.getString("state")
+    }
+    suspend fun contactAction(id: String, action: String) = syncLock.withLock { withContext(Dispatchers.IO) {
+        api.json("/api/v1/contacts/$id", "POST", JSONObject().put("action", action))
+        // Commit the confirmed relation immediately, even if fetching its new conversation
+        // later fails. In particular, do not offer Accept again after the server accepted it.
+        withContext(kotlinx.coroutines.NonCancellable) {
+            db.runInTransaction {
+                cache.items("contact").forEach { item ->
+                    val contact = JSONObject(item.json)
+                    if (contact.getJSONObject("peer").getString("id") == id) {
+                        if (action == "accept") cache.put(TouchDatabase.Item("contact", item.id,
+                            contact.put("state", "accepted").toString()))
+                        else cache.remove("contact", item.id)
+                    }
+                }
+                if (action == "remove") cache.items("conversation").forEach { item ->
+                    val conversation = JSONObject(item.json)
+                    if (conversation.getJSONObject("peer").getString("id") == id) cache.put(
+                        TouchDatabase.Item("conversation", item.id, conversation.put("can_send", false).toString()))
+                }
+            }
+            requestSync()
+        }
+    } }
 
     suspend fun upload(uri: Uri, kind: String, onProgress: (Float) -> Unit): FileItem = withContext(Dispatchers.IO) {
         var name = "文件"

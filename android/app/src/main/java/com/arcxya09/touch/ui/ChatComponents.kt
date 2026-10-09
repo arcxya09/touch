@@ -11,6 +11,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.arcxya09.touch.data.PendingDelivery
 
 @Composable internal fun ChatHeader(title: String, back: () -> Unit, hide: () -> Unit, menu: @Composable () -> Unit) {
     TouchHeader(title, back) {
@@ -80,11 +81,17 @@ import androidx.compose.ui.unit.dp
     }
 }
 
-@Composable internal fun PendingMessageActions(sending: Boolean, busy: Boolean, retry: () -> Unit, discard: () -> Unit) {
+@Composable internal fun PendingMessageActions(sending: Boolean, busy: Boolean, retry: () -> Unit, discard: () -> Unit,
+                                               delivery: PendingDelivery = PendingDelivery.Unconfirmed) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(if (sending) "发送中" else "发送失败", style = MaterialTheme.typography.labelSmall,
-            color = if (sending) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
+        val failed = !sending && delivery == PendingDelivery.Failed
+        Text(if (sending) "发送中" else when (delivery) {
+            PendingDelivery.Queued -> "待发送"
+            PendingDelivery.Unconfirmed -> "等待确认"
+            PendingDelivery.Failed -> "发送失败"
+        }, style = MaterialTheme.typography.labelSmall,
+            color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
         TextButton(onClick = retry, enabled = !sending && !busy) { Text("重试") }
-        TextButton(onClick = discard, enabled = !busy) { Text("删除") }
+        TextButton(onClick = discard, enabled = !sending && !busy) { Text("删除") }
     }
 }

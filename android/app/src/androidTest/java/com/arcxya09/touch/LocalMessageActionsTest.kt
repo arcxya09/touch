@@ -18,7 +18,11 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 class LocalMessageActionsTest {
-    @Test fun recallIgnoresCachedPeerCapabilityAndRemovesOriginalContentAndAttachment() = runBlocking<Unit> {
+    @Test fun recallIgnoresCachedPeerCapabilityAndRemovesOriginalContentAndAttachment() = verifyRecall(syncAvailable = true)
+
+    @Test fun confirmedRecallErasesLocalContentEvenWhenSubsequentSyncFails() = verifyRecall(syncAvailable = false)
+
+    private fun verifyRecall(syncAvailable: Boolean) = runBlocking<Unit> {
         withContext(Dispatchers.IO) {
             val app = ApplicationProvider.getApplicationContext<TouchApp>()
             val name = "recall-actions-${UUID.randomUUID()}.db"
@@ -51,7 +55,8 @@ class LocalMessageActionsTest {
                 server.dispatcher = object : Dispatcher() {
                     override fun dispatch(request: RecordedRequest): MockResponse = when {
                         request.method == "POST" && request.path == recallPath -> MockResponse().setBody("{\"ok\":true}")
-                        request.path == "/api/v1/auth/me" -> MockResponse().setBody(user.toString())
+                        request.path == "/api/v1/auth/me" -> if (syncAvailable) MockResponse().setBody(user.toString())
+                            else MockResponse().setResponseCode(503).setBody("{\"detail\":\"fixture temporarily offline\"}")
                         request.path?.startsWith("/api/v1/sync?") == true -> MockResponse().setBody(JSONObject()
                             .put("events", JSONArray().put(JSONObject().put("kind", "message").put("payload", recalled)))
                             .put("cursor", 2).put("has_more", false).toString())
@@ -85,7 +90,7 @@ class LocalMessageActionsTest {
                     assertEquals("Recall must be sent before any auth/profile sync", recallPath, first.path)
                     assertEquals("POST", first.method)
                     assertEquals("Bearer local-recall-token", first.getHeader("Authorization"))
-                    assertEquals(5, server.requestCount)
+                    assertEquals("Recall completion must not wait for unrelated synchronization", 1, server.requestCount)
                     val tombstone = JSONObject(cache.get("message", mid)!!.json)
                     assertEquals("recalled", tombstone.getString("kind"))
                     assertEquals("", tombstone.getString("text"))
@@ -98,6 +103,18 @@ class LocalMessageActionsTest {
                     assertTrue(repo.messages(cid).isEmpty())
                     assertNull(repo.original(cid, ReplyRef(mid, 1, now)))
                     assertFalse("Recall succeeds while cached peer metadata remains legacy", repo.conversations().single().canRecall)
+                    assertNull("The conversation summary must immediately remove the recalled content", repo.conversations().single().last)
+
+                    if (syncAvailable) {
+                        repo.sync()
+                        assertEquals(5, server.requestCount)
+                    } else {
+                        val failure = runCatching { repo.sync() }.exceptionOrNull()
+                        assertTrue("This fixture must actually fail the later sync", failure is ApiException && failure.status == 503)
+                    }
+                    assertTrue("Later sync must not restore the original", repo.messages(cid).isEmpty())
+                    assertNull(repo.original(cid, ReplyRef(mid, 1, now)))
+                    assertFalse(encrypted.encryptedFile.exists())
                 } finally {
                     repo.stop(); secure.write("session", priorSession)
                     db.close(); app.deleteDatabase(name); folder.deleteRecursively()

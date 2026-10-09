@@ -2,10 +2,15 @@ package com.arcxya09.touch
 
 import android.Manifest
 import android.app.AlarmManager
+import android.app.KeyguardManager
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
@@ -15,13 +20,14 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.viewModels
 import com.arcxya09.touch.data.AttachmentProvider
 import com.arcxya09.touch.data.EncryptedAttachment
 import androidx.core.view.WindowCompat
+import androidx.core.content.ContextCompat
 import com.arcxya09.touch.ui.TouchRoot
 import com.arcxya09.touch.update.Updater
-import java.io.File
 
 class MainActivity : ComponentActivity(), android.hardware.SensorEventListener {
     private val sensors by lazy { getSystemService(android.hardware.SensorManager::class.java) }
@@ -62,9 +68,17 @@ class MainActivity : ComponentActivity(), android.hardware.SensorEventListener {
 
     private val model: AppViewModel by viewModels()
     private lateinit var cover: TextView
-    private val imagePicker = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> selection(uri, "image") }
-    private val avatarPicker = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> model.pendingAvatar = uri }
-    private val documentPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> selection(uri, "file") }
+    private val pickerPrivacy = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == Intent.ACTION_SCREEN_OFF || intent.action == Intent.ACTION_CLOSE_SYSTEM_DIALOGS &&
+                intent.getStringExtra("reason") in setOf("homekey", "recentapps", "assist", "globalactions")) {
+                model.cancelExternalSelection()
+            }
+        }
+    }
+    private val imagePicker = registerForActivityResult(continuingPicker(ActivityResultContracts.PickVisualMedia())) { uri -> selection(uri, SelectionKind.Image) }
+    private val avatarPicker = registerForActivityResult(continuingPicker(ActivityResultContracts.PickVisualMedia())) { uri -> selection(uri, SelectionKind.Avatar) }
+    private val documentPicker = registerForActivityResult(continuingPicker(ActivityResultContracts.OpenDocument())) { uri -> selection(uri, SelectionKind.Document) }
     private val notifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
     private val messageNotifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) model.pendingNotificationEnable = true
@@ -75,6 +89,12 @@ class MainActivity : ComponentActivity(), android.hardware.SensorEventListener {
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Activity/process recreation always requires a fresh unlock, even if a picker later returns.
+        model.cancelExternalSelection()
+        ContextCompat.registerReceiver(this, pickerPrivacy, IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)
+        }, ContextCompat.RECEIVER_NOT_EXPORTED)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         model.updater = Updater(this, model.repository.api)
@@ -89,6 +109,7 @@ class MainActivity : ComponentActivity(), android.hardware.SensorEventListener {
     }
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        model.cancelExternalSelection()
         setIntent(intent)
         if (intent.getBooleanExtra("notification_settings", false)) model.pendingNotificationSettings = true
         routeNotification(intent)
@@ -104,12 +125,26 @@ class MainActivity : ComponentActivity(), android.hardware.SensorEventListener {
     override fun onPause() {
         resumed = false; sensors.unregisterListener(this); motionOptions = null
         if (::cover.isInitialized && (model.privacy || model.needsPrivacySetup)) cover.visibility = View.VISIBLE
-        model.background()
+        if (model.hasExternalSelection) model.pauseForExternalSelection() else model.background()
         super.onPause()
     }
-    override fun onResume() { super.onResume(); resumed = true; model.resume(); applySafety() }
+    override fun onUserLeaveHint() {
+        model.cancelExternalSelection()
+        super.onUserLeaveHint()
+    }
+    override fun onResume() {
+        super.onResume()
+        // Activity results arrive before resume. Returning without one is not picker completion.
+        model.cancelExternalSelection()
+        resumed = true; model.resume(); applySafety()
+    }
+    override fun onDestroy() {
+        model.cancelExternalSelection()
+        unregisterReceiver(pickerPrivacy)
+        super.onDestroy()
+    }
     fun renderedGate(orientation: Int) {
-        if (exiting) return
+        if (exiting || !resumed) return
         if (requestedOrientation != orientation) requestedOrientation = orientation
         applySafety()
         model.renderedChat()
@@ -118,14 +153,23 @@ class MainActivity : ComponentActivity(), android.hardware.SensorEventListener {
         if (Build.VERSION.SDK_INT >= 33) setRecentsScreenshotEnabled(!(model.privacy || model.needsPrivacySetup))
         if (::cover.isInitialized) cover.visibility = View.GONE
     }
-    private fun selection(uri: Uri?, kind: String) {
-        if (uri == null) return
-        runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-        model.pendingSelection = uri to kind
+    private fun selection(uri: Uri?, kind: SelectionKind) {
+        val deviceUnlocked = getSystemService(PowerManager::class.java).isInteractive &&
+            !getSystemService(KeyguardManager::class.java).isKeyguardLocked
+        if (!model.completeExternalSelection(kind, uri, deviceUnlocked)) return
+        if (uri != null) runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
     }
-    fun chooseAvatar() = avatarPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-    fun chooseImage() = imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-    fun chooseDocument() = documentPicker.launch(arrayOf("*/*"))
+    private fun launchSelection(kind: SelectionKind, launch: () -> Unit) {
+        if (!model.beginExternalSelection(kind)) return
+        try { launch() }
+        catch (_: Exception) {
+            model.cancelExternalSelection()
+            model.error = "系统选择器暂时无法打开，请稍后重试"
+        }
+    }
+    fun chooseAvatar() = launchSelection(SelectionKind.Avatar) { avatarPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+    fun chooseImage() = launchSelection(SelectionKind.Image) { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+    fun chooseDocument() = launchSelection(SelectionKind.Document) { documentPicker.launch(arrayOf("*/*")) }
     fun notificationPermission() {
         if (Build.VERSION.SDK_INT >= 33) notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
@@ -178,4 +222,11 @@ class MainActivity : ComponentActivity(), android.hardware.SensorEventListener {
         } catch (_: Exception) { model.error = "未找到可打开此文件的应用，可选择保存文件" }
     }
     fun export(file: EncryptedAttachment, name: String) { model.prepareExport(file, name) { exporter.launch(it) } }
+}
+
+/** A picker is an explicit, bounded continuation; Home and other user exits still leave hints. */
+private fun <I, O> continuingPicker(delegate: ActivityResultContract<I, O>) = object : ActivityResultContract<I, O>() {
+    override fun createIntent(context: Context, input: I): Intent =
+        delegate.createIntent(context, input).addFlags(Intent.FLAG_ACTIVITY_NO_USER_ACTION)
+    override fun parseResult(resultCode: Int, intent: Intent?): O = delegate.parseResult(resultCode, intent)
 }

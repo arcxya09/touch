@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import com.arcxya09.touch.AppViewModel
 import com.arcxya09.touch.MainActivity
 import com.arcxya09.touch.Operation
@@ -50,7 +51,8 @@ private data class SelectionDetails(val name: String, val size: Long?, val bitma
     }
     val dismiss = { if (avatar) vm.pendingAvatar = null else vm.pendingSelection = null }
     val working = vm.isWorking(if (avatar) Operation.Profile else Operation.Attachment)
-    AlertDialog(onDismissRequest = dismiss, title = { Text(if (avatar) "更换头像" else "发送附件") }, text = {
+    SelectionConfirmationDialog(avatar, working, details != null, dismiss, if (avatar) vm::uploadAvatar else vm::sendSelection,
+        cancel = { vm.cancelSelection(avatar) }) {
         Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             details?.bitmap?.let { bitmap ->
                 Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainer) {
@@ -61,8 +63,17 @@ private data class SelectionDetails(val name: String, val size: Long?, val bitma
             details?.size?.let { SupportingNote(formatFileSize(it)) }
             SupportingNote(if (avatar) "头像会裁剪为方形，并显示给其他用户。" else "确认后发送到当前会话。")
         }
-    }, confirmButton = { TextButton(onClick = if (avatar) vm::uploadAvatar else vm::sendSelection, enabled = !working && details != null) { Text(if (avatar) "上传头像" else "发送") } },
-        dismissButton = { TextButton(onClick = dismiss, enabled = !working) { Text("取消") } })
+    }
+}
+
+@Composable internal fun SelectionConfirmationDialog(avatar: Boolean, working: Boolean, ready: Boolean,
+                                                      dismiss: () -> Unit, confirm: () -> Unit, cancel: () -> Unit = dismiss,
+                                                      content: @Composable () -> Unit) {
+    AlertDialog(onDismissRequest = { if (!working) dismiss() },
+        properties = DialogProperties(dismissOnBackPress = !working, dismissOnClickOutside = !working),
+        title = { Text(if (avatar) "更换头像" else "发送附件") }, text = content,
+        confirmButton = { TextButton(onClick = confirm, enabled = !working && ready) { Text(if (avatar) "上传头像" else "发送") } },
+        dismissButton = { TextButton(onClick = cancel) { Text(if (working) "取消上传" else "取消") } })
 }
 
 internal fun formatFileSize(bytes: Long): String = when {

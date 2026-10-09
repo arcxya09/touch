@@ -12,6 +12,8 @@
 
 配置使用本机加密保险库保存并绑定用户 ID。新登录、退出或会话撤销会关闭通知并清理消息通知。开机、包升级尝试恢复已开启且未暂停的服务；配置或凭据不可读时停止，不能自动恢复到可访问状态。
 
+撤回、本地删除、过期清理、服务端清历史和锁屏会使正在读取内容的旧通知失效。最终发布与清除使用同一同步边界，并再次检查通知模式、账号、权限与锁屏状态，避免旧正文在清除后被迟到任务重新显示。
+
 移除最近任务与强行停止不同。`stopWithTask=false` 保留用户已开启的服务，但强停、系统「停止」、Doze、断网和厂商电池/自启动限制仍可中断接收；必须允许通知并按需配置后台运行。磁贴只是服务开关，不是绕过系统限制的常驻机制。
 
 依据：[Android 前台服务类型](https://developer.android.com/develop/background-work/services/fgs/service-types)、[用户停止服务](https://developer.android.com/develop/background-work/services/fgs/handle-user-stopping)、[快捷设置磁贴](https://developer.android.com/develop/ui/views/quicksettings-tiles)、[通知分组](https://developer.android.com/develop/ui/compose/notifications#notification-behaviors)。

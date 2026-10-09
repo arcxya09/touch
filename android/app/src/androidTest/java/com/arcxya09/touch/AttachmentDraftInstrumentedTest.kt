@@ -75,11 +75,13 @@ class AttachmentDraftInstrumentedTest {
                 }
                 withTimeout(5000) { while (repo.draft("A")?.optJSONObject("reply_to") == null) delay(20) }
                 withContext(Dispatchers.Main) { vm.sendSelection() }
-                awaitState { vm.operationState(Operation.Attachment).status == OperationStatus.Failed }
+                awaitState { vm.operationState(Operation.Attachment).status == OperationStatus.Succeeded }
                 withContext(Dispatchers.Main) {
                     assertEquals("This text has not been sent", vm.draftText)
                     assertNull(vm.quote)
+                    assertNull("A lost server response leaves a pending message, not a failed attachment upload", vm.error)
                 }
+                assertEquals(PendingDelivery.Unconfirmed, repo.messages("A").single { it.pending }.pendingDelivery)
                 withTimeout(5000) {
                     while (true) {
                         val saved = repo.draft("A")

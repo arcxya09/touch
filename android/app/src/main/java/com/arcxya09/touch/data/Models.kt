@@ -16,8 +16,11 @@ data class ReplyRef(val id: String, val seq: Long, val createdAt: Long) {
     fun json() = JSONObject().put("id", id).put("seq", seq).put("created_at", createdAt)
     companion object { fun parse(j: JSONObject) = ReplyRef(j.getString("id"), j.getLong("seq"), j.getLong("created_at")) }
 }
+enum class PendingDelivery { Queued, Unconfirmed, Failed }
+
 data class ChatMessage(val id: String, val conversationId: String, val senderId: String, val clientId: String,
-    val seq: Long, val kind: String, val text: String, val createdAt: Long, val file: FileItem?, val pending: Boolean = false, val replyTo: ReplyRef? = null) {
+    val seq: Long, val kind: String, val text: String, val createdAt: Long, val file: FileItem?, val pending: Boolean = false, val replyTo: ReplyRef? = null,
+    val pendingDelivery: PendingDelivery = PendingDelivery.Unconfirmed) {
     companion object { fun parse(j: JSONObject) = ChatMessage(j.getString("id"), j.getString("conversation_id"), j.getString("sender_id"), j.getString("client_id"), j.getLong("seq"), j.getString("kind"), j.optString("text"), j.getLong("created_at"), j.optJSONObject("attachment")?.let(FileItem::parse), replyTo = j.optJSONObject("reply_to")?.let(ReplyRef::parse)) }
 }
 data class Conversation(val id: String, val peer: Person, val unread: Int, val clearSeq: Long, val canSend: Boolean, val last: ChatMessage?, val peerReadSeq: Long = 0, val canRecall: Boolean = false) {

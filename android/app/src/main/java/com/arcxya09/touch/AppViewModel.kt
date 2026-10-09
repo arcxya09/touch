@@ -80,12 +80,49 @@ class AppViewModel internal constructor(application: Application, val repository
     var user by mutableStateOf<Person?>(null); private set
     var destination by mutableStateOf(Screen.Home); private set
     private var navigationGeneration = 0L
+    private data class ExternalSelection(val kind: SelectionKind, val owner: String,
+                                         val conversationId: String?, val screen: Screen, val generation: Long)
+    // This one-shot continuation is deliberately never placed in saved state or preferences.
+    private var externalSelection: ExternalSelection? = null
+    internal val hasExternalSelection get() = externalSelection != null
+    internal fun beginExternalSelection(kind: SelectionKind): Boolean {
+        val owner = user?.takeUnless { it.mustChange }?.id ?: return false
+        if (!foreground || !mayShowChat || externalSelection != null) return false
+        if (kind == SelectionKind.Avatar) {
+            if (destination != Screen.Profile) return false
+        } else if (destination != Screen.Chat || conversationId == null) return false
+        externalSelection = ExternalSelection(kind, owner, conversationId, destination, navigationGeneration)
+        return true
+    }
+    internal fun cancelExternalSelection() { externalSelection = null }
+    private fun acceptsSelection(request: ExternalSelection) =
+        initialized && !storageError && !needsPrivacySetup && user?.mustChange == false &&
+            user?.id == request.owner && repository.api.user?.id == request.owner &&
+            conversationId == request.conversationId && destination == request.screen && navigationGeneration == request.generation
+    internal fun pauseForExternalSelection() {
+        if (externalSelection?.let(::acceptsSelection) != true) cancelExternalSelection()
+        suspendForeground()
+    }
+    internal fun completeExternalSelection(kind: SelectionKind, uri: Uri?, deviceUnlocked: Boolean): Boolean {
+        val request = externalSelection
+        externalSelection = null
+        if (request == null || request.kind != kind || !deviceUnlocked || !acceptsSelection(request)) return false
+        // Only a direct result from the picker that this unlocked session opened can continue it.
+        locked = false
+        if (kind == SelectionKind.Avatar) pendingAvatar = uri
+        else pendingSelection = uri?.let { it to kind.attachmentKind }
+        if (foreground && cacheReady) startForegroundWork()
+        return true
+    }
     // Compatibility for existing integration tests; all navigation uses the same transition.
     var screen: String
         get() = destination.route
         set(value) { navigate(Screen.fromRoute(value)) }
     fun navigate(target: Screen) {
         if (target == destination) return
+        cancelExternalSelection()
+        if (target != Screen.Chat) pendingSelection = null
+        if (target != Screen.Profile) pendingAvatar = null
         navigationGeneration++
         if (destination == Screen.Contacts) { cancelOperation(Operation.Contacts); foundPerson = null }
         if (destination == Screen.Chat || destination == Screen.Preview) {
@@ -366,6 +403,10 @@ class AppViewModel internal constructor(application: Application, val repository
         }
     }
     fun background() {
+        cancelExternalSelection()
+        suspendForeground()
+    }
+    private fun suspendForeground() {
         viewModelScope.launch(NonCancellable + Dispatchers.IO) { runCatching { repository.checkpointRetention() } }
         rememberDraft()
         conversationRequests.invalidate()
@@ -544,6 +585,7 @@ class AppViewModel internal constructor(application: Application, val repository
     }
     fun openConversation(id: String) {
         if (!mayShowChat || user == null || isWorking(Operation.Session)) return
+        cancelExternalSelection(); pendingSelection = null
         rememberDraft()
         conversationRequests.invalidate()
         cancelOperation(Operation.Conversation)
@@ -591,10 +633,10 @@ class AppViewModel internal constructor(application: Application, val repository
         try { repository.send(id, text, reply = reply) {
             val cleared = queuedDraft(ticket, text, reply)
             withContext(Dispatchers.Main.immediate) { if (cleared && accepts(ticket) && draftText.isEmpty() && quote == null) clear() }
-        }; repository.sync() }
-        finally { reloadLocal() }
+        } }
+        finally { repository.requestSync(); reloadLocal() }
     }
-    fun retry(id: String) = action(Operation.Send) { try { repository.retry(id); repository.sync() } finally { reloadLocal() } }
+    fun retry(id: String) = action(Operation.Send) { try { repository.retry(id) } finally { repository.requestSync(); reloadLocal() } }
     fun deleteLocalMessage(message: ChatMessage) = action(Operation.Send) {
         val ticket = conversationTicket()
         repository.deleteLocalMessage(message)
@@ -640,11 +682,20 @@ class AppViewModel internal constructor(application: Application, val repository
     fun request() = action(Operation.Contacts) {
         val person = foundPerson ?: return@action
         val owner = user?.id; val generation = navigationGeneration
-        repository.request(person)
-        if (owner == repository.api.user?.id && destination == Screen.Contacts && navigationGeneration == generation && foundPerson == person) foundPerson = null
+        val state = repository.request(person)
+        if (owner == repository.api.user?.id && destination == Screen.Contacts && navigationGeneration == generation && foundPerson == person) {
+            foundPerson = null
+            notice = if (state == "accepted") "联系人已添加" else "好友申请已发送"
+        }
         reloadLocal()
     }
-    fun contactAction(person: Person, operation: String) = action(Operation.Contacts) { repository.contactAction(person.id, operation); reloadLocal() }
+    fun contactAction(person: Person, operation: String) = action(Operation.Contacts) {
+        val owner = user?.id; val generation = navigationGeneration
+        repository.contactAction(person.id, operation); reloadLocal()
+        if (owner == repository.api.user?.id && destination == Screen.Contacts && navigationGeneration == generation) {
+            notice = when (operation) { "accept" -> "已接受好友申请"; "reject" -> "已拒绝好友申请"; else -> "联系人已删除" }
+        }
+    }
     fun sendSelection() = action(Operation.Attachment) {
         val task = currentCoroutineContext()[Job]
         val progress = ProgressUpdates { android.os.SystemClock.elapsedRealtime() }
@@ -661,8 +712,8 @@ class AppViewModel internal constructor(application: Application, val repository
             if (!accepts(ticket)) return@action
             if (pendingSelection == selection) pendingSelection = null
             draftJobs.remove(id)?.cancelAndJoin()
-            repository.send(id, attachment = file, reply = reply) { queuedDraft(ticket, submittedText, reply, consumeText = false) }; repository.sync()
-        } finally { if (operationJobs[Operation.Attachment] === task) transfer = null; reloadLocal() }
+            repository.send(id, attachment = file, reply = reply) { queuedDraft(ticket, submittedText, reply, consumeText = false) }
+        } finally { if (operationJobs[Operation.Attachment] === task) transfer = null; repository.requestSync(); reloadLocal() }
     }
     fun openFile(message: ChatMessage) = action(Operation.Attachment) {
         val task = currentCoroutineContext()[Job]
@@ -680,6 +731,10 @@ class AppViewModel internal constructor(application: Application, val repository
         } finally { if (operationJobs[Operation.Attachment] === task) transfer = null }
     }
     fun cancelTransfer() { cancelOperation(Operation.Attachment); transfer = null }
+    fun cancelSelection(avatar: Boolean) {
+        if (avatar) { cancelOperation(Operation.Profile); pendingAvatar = null }
+        else { cancelTransfer(); pendingSelection = null }
+    }
     fun prepareExport(file: EncryptedAttachment, name: String, launchPicker: (String) -> Unit) = action(Operation.Export) {
         val owner = user?.id ?: return@action
         val message = messages.firstOrNull { it.file?.id == file.item.id }
@@ -725,18 +780,25 @@ class AppViewModel internal constructor(application: Application, val repository
         reloadLocal()
     }
     fun saveProfile(name: String, bio: String) = action(Operation.Profile) {
-        repository.updateProfile(name, bio); user = repository.api.user
-        repository.sync(); reloadLocal(); if (mayShowChat) notice = "个人资料已保存"
+        repository.updateProfile(name, bio)
+        profileUpdated()
+        if (mayShowChat) notice = "个人资料已保存"
     }
     fun uploadAvatar() = action(Operation.Profile) {
         val uri = pendingAvatar ?: return@action
-        repository.uploadAvatar(uri); pendingAvatar = null; user = repository.api.user
-        repository.sync(); reloadLocal()
+        repository.uploadAvatar(uri)
+        if (pendingAvatar == uri) pendingAvatar = null
+        profileUpdated()
     }
-    fun removeAvatar() = action(Operation.Profile) { repository.removeAvatar(); user = repository.api.user; repository.sync(); reloadLocal() }
+    fun removeAvatar() = action(Operation.Profile) { repository.removeAvatar(); profileUpdated() }
     fun setReadReceipts(enabled: Boolean) = action(Operation.Profile) {
-        repository.setReadReceipts(enabled); user = repository.api.user
-        repository.sync(); reloadLocal()
+        repository.setReadReceipts(enabled); profileUpdated()
+    }
+    private suspend fun profileUpdated() {
+        // The mutation response has already been saved atomically. A later full sync is
+        // independent work: its network failure must not turn a confirmed save into a failure.
+        reloadLocal()
+        AlertService.wake()
     }
     fun setRetention(hours: Long) = action {
         require(hours in 1..8760) { "请输入 1 至 8760 小时" }

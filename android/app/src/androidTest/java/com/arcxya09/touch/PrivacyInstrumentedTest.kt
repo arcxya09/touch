@@ -1,7 +1,12 @@
 package com.arcxya09.touch
 
 import android.content.Context
+import android.content.ContentValues
+import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.graphics.Bitmap
+import android.net.Uri
+import android.provider.MediaStore
 import android.view.WindowManager
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.*
@@ -12,6 +17,9 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.Until
 import com.arcxya09.touch.data.TouchDatabase
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
@@ -22,7 +30,11 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.io.ByteArrayOutputStream
 import java.net.URI
+import java.security.MessageDigest
+import java.util.UUID
+import java.util.regex.Pattern
 
 @RunWith(AndroidJUnit4::class)
 class PrivacyInstrumentedTest {
@@ -79,6 +91,240 @@ class PrivacyInstrumentedTest {
             current == expected
         }
         scenario!!.onActivity { assertEquals(reason, expected, it.requestedOrientation) }
+    }
+    private fun launchConversation(): Pair<AppViewModel, String> = runBlocking {
+        val args = InstrumentationRegistry.getArguments()
+        val apiUri = URI(BuildConfig.API_BASE)
+        require(apiUri.scheme == "http" && apiUri.host == "127.0.0.1") { "Selection tests require the disposable loopback fixture" }
+        val username = requireNotNull(args.getString("touchTestUser"))
+        require(username.startsWith("verify_local_"))
+        app.repository.initialize()
+        app.repository.login(username, requireNotNull(args.getString("touchTestPassword")))
+        app.repository.sync()
+        val cid = app.repository.conversations().single().id
+        launch()
+        val model = activeModel()
+        unlock()
+        compose.waitUntil(15000) { model.mayShowChat && model.user != null }
+        scenario!!.onActivity { model.openConversation(cid) }
+        compose.waitUntil(15000) { model.destination == Screen.Chat && !model.isWorking(Operation.Conversation) }
+        model to cid
+    }
+    @Test fun systemPickersCancelBackToTheirUnlockedPage() {
+        val (model, _) = launchConversation()
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        for (kind in SelectionKind.entries) {
+            val page = if (kind == SelectionKind.Avatar) Screen.Profile else Screen.Chat
+            scenario!!.onActivity { activity ->
+                model.navigate(page)
+                when (kind) {
+                    SelectionKind.Image -> activity.chooseImage()
+                    SelectionKind.Document -> activity.chooseDocument()
+                    SelectionKind.Avatar -> activity.chooseAvatar()
+                }
+            }
+            assertTrue("The system selector must be visible for $kind", device.wait(Until.gone(By.pkg(app.packageName).depth(0)), 10000))
+            compose.waitUntil(10000) { model.locked && !model.mayShowChat }
+            assertTrue("Picker pause must retain only its bounded continuation", model.hasExternalSelection)
+            device.pressBack()
+            compose.waitUntil(15000) { model.mayShowChat }
+            scenario!!.onActivity {
+                assertFalse(model.locked)
+                assertEquals(page, model.destination)
+                assertNull(model.pendingSelection)
+                assertNull(model.pendingAvatar)
+                assertFalse(model.hasExternalSelection)
+            }
+        }
+    }
+    @Test fun selectedSystemPhotoReturnsToPrivateChatAndSendsExactlyOnce() = runBlocking<Unit> {
+        val (model, cid) = launchConversation()
+        val owner = requireNotNull(model.user).id
+        val before = app.repository.messages(cid).map { it.id }.toSet()
+        val name = "touch-picker-${UUID.randomUUID()}.png"
+        val bitmap = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+        val png = try {
+            bitmap.eraseColor(0xff000000.toInt() or (name.hashCode() and 0x00ffffff))
+            ByteArrayOutputStream().use { output ->
+                assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output))
+                output.toByteArray()
+            }
+        } finally { bitmap.recycle() }
+        val checksum = MessageDigest.getInstance("SHA-256").digest(png).joinToString("") { "%02x".format(it) }
+        val resolver = app.contentResolver
+        val media = requireNotNull(resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(MediaStore.MediaColumns.MIME_TYPE, "image/png")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/TouchPickerTests")
+            put(MediaStore.Images.ImageColumns.DATE_TAKEN, System.currentTimeMillis())
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }))
+        try {
+            requireNotNull(resolver.openOutputStream(media)).use { it.write(png) }
+            assertEquals(1, resolver.update(media, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null))
+            compose.onNodeWithContentDescription("添加图片或文件").performClick()
+            compose.onNodeWithText("图片").performClick()
+            val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+            assertTrue(device.wait(Until.gone(By.pkg(app.packageName).depth(0)), 10000))
+            compose.waitUntil(10000) { model.locked && !model.mayShowChat }
+            // Older releases use DocumentsUI, current photo pickers expose either a thumbnail
+            // resource or a dated accessibility label. The fixture is the newest local photo.
+            val photo = device.wait(Until.findObject(By.text(name)), 2000)
+                ?: device.wait(Until.findObject(By.res(Pattern.compile(".*:id/icon_thumbnail"))), 5000)
+                ?: device.wait(Until.findObject(By.desc(Pattern.compile("(?i).*photo taken.*|.*拍摄.*照片.*|.*照片.*拍摄.*"))), 5000)
+            assertNotNull("The generated MediaStore photo must be selectable in the system picker", photo)
+            photo!!.click()
+            compose.waitUntil(15000) { model.pendingSelection != null && model.mayShowChat }
+            val selected = requireNotNull(model.pendingSelection).first
+            assertEquals("content", selected.scheme)
+            // Never submit an unrelated gallery item if a device uses a different grid layout.
+            assertArrayEquals("The real picker must return the generated image", png,
+                requireNotNull(resolver.openInputStream(selected)).use { it.readBytes() })
+            scenario!!.onActivity {
+                assertFalse(model.locked)
+                assertEquals(Screen.Chat, model.destination)
+                assertEquals(cid, model.conversationId)
+                assertFalse(model.hasExternalSelection)
+            }
+            compose.onNodeWithText("发送附件").assertIsDisplayed()
+            compose.waitUntil(10000) {
+                compose.onAllNodesWithContentDescription("所选图片预览").fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithText("发送").assertIsEnabled().performClick()
+            compose.waitUntil(20000) {
+                !model.isWorking(Operation.Attachment) && model.pendingSelection == null &&
+                    model.messages.any { !it.pending && it.senderId == owner && it.file?.sha256 == checksum }
+            }
+            val sent = model.messages.filter { it.id !in before && it.senderId == owner }
+            assertEquals("Selecting and confirming once must create exactly one message", 1, sent.size)
+            val message = sent.single()
+            assertEquals("image", message.kind)
+            assertFalse(message.pending)
+            assertEquals(checksum, requireNotNull(message.file).sha256)
+            assertNull(model.error)
+            repeat(2) { app.repository.sync(); app.repository.history(cid) }
+            val rows = app.repository.messages(cid).filter { it.clientId == message.clientId && it.senderId == owner }
+            assertEquals("Sync and history must reconcile the same image rather than duplicate it", listOf(message.id), rows.map { it.id })
+            val remote = app.repository.api.json("/api/v1/conversations/$cid/messages").getJSONArray("messages")
+            assertEquals(1, (0 until remote.length()).count {
+                remote.getJSONObject(it).optString("client_id") == message.clientId &&
+                    remote.getJSONObject(it).optString("sender_id") == owner
+            })
+        } finally {
+            assertEquals("Remove only this test's generated gallery image", 1, resolver.delete(media, null, null))
+        }
+    }
+    @Test fun directPickerResultsKeepTheirOriginalPageAndCannotBeReplayed() {
+        val (model, _) = launchConversation()
+        val selected = Uri.parse("content://local-selection-fixture/item")
+        for (kind in SelectionKind.entries) {
+            val page = if (kind == SelectionKind.Avatar) Screen.Profile else Screen.Chat
+            scenario!!.onActivity {
+                model.navigate(page)
+                assertTrue(model.beginExternalSelection(kind))
+                model.pauseForExternalSelection()
+                assertTrue(model.locked)
+                assertFalse(model.mayShowChat)
+                assertTrue(model.completeExternalSelection(kind, selected, deviceUnlocked = true))
+                assertFalse(model.completeExternalSelection(kind, selected, deviceUnlocked = true))
+                assertEquals(page, model.destination)
+                if (kind == SelectionKind.Avatar) assertEquals(selected, model.pendingAvatar)
+                else assertEquals(selected to kind.attachmentKind, model.pendingSelection)
+                model.pendingAvatar = null; model.pendingSelection = null
+                model.resume()
+            }
+            compose.waitUntil(10000) { model.mayShowChat }
+        }
+    }
+    @Test fun interruptedOrOutdatedPickerResultCannotUnlockOrChangeSelection() {
+        val (model, _) = launchConversation()
+        val selected = Uri.parse("content://local-selection-fixture/item")
+        for (interruption in listOf("background", "navigation", "screen-lock", "wrong-picker")) {
+            scenario!!.onActivity {
+                assertTrue(model.beginExternalSelection(SelectionKind.Image))
+                model.pauseForExternalSelection()
+                when (interruption) {
+                    "background" -> model.background()
+                    "navigation" -> { model.navigate(Screen.Home); model.navigate(Screen.Chat) }
+                }
+                assertFalse(model.completeExternalSelection(
+                    if (interruption == "wrong-picker") SelectionKind.Document else SelectionKind.Image,
+                    selected, deviceUnlocked = interruption != "screen-lock"))
+                assertTrue(model.locked)
+                assertFalse(model.mayShowChat)
+                assertNull(model.pendingSelection)
+                assertNull(model.pendingAvatar)
+                model.resume()
+            }
+            compose.waitUntil(10000) { model.initialized && !model.storageError }
+            scenario!!.onActivity { model.unlock(listOf(0, 1, 2, 5)) }
+            compose.waitUntil(10000) { model.mayShowChat }
+        }
+    }
+    @Test fun homeWhilePickerIsOpenInvalidatesAutomaticUnlock() {
+        val (model, _) = launchConversation()
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        scenario!!.onActivity { it.chooseDocument() }
+        assertTrue(device.wait(Until.gone(By.pkg(app.packageName).depth(0)), 10000))
+        assertTrue(model.hasExternalSelection)
+        device.pressHome()
+        compose.waitUntil(10000) { !model.hasExternalSelection }
+        // Reopen the existing task. Some pickers remain on top; others return directly to Touch.
+        app.startActivity(app.packageManager.getLaunchIntentForPackage(app.packageName)!!.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        if (!device.wait(Until.hasObject(By.pkg(app.packageName).depth(0)), 2000)) device.pressBack()
+        compose.waitUntil(15000) { compose.onAllNodesWithTag("timer-screen").fetchSemanticsNodes().isNotEmpty() }
+        scenario!!.onActivity {
+            assertTrue(model.locked)
+            assertNull(model.pendingSelection)
+        }
+    }
+    @Test fun pickerRequestDoesNotSurviveActivityRecreationOrConversationChange() {
+        val (model, cid) = launchConversation()
+        scenario!!.onActivity { assertTrue(model.beginExternalSelection(SelectionKind.Image)) }
+        scenario!!.recreate()
+        compose.onNodeWithTag("timer-screen").assertIsDisplayed()
+        val recreated = activeModel()
+        scenario!!.onActivity {
+            assertFalse(recreated.completeExternalSelection(SelectionKind.Image, Uri.parse("content://local-selection-fixture/item"), true))
+            assertTrue(recreated.locked)
+        }
+        unlock()
+        compose.waitUntil(10000) { recreated.mayShowChat }
+        scenario!!.onActivity {
+            recreated.pendingSelection = Uri.parse("content://local-selection-fixture/item") to "image"
+            recreated.openConversation(cid)
+            assertNull(recreated.pendingSelection)
+            recreated.pendingSelection = Uri.parse("content://local-selection-fixture/item") to "image"
+            recreated.navigate(Screen.Home)
+            assertNull(recreated.pendingSelection)
+        }
+    }
+    @Test fun lockingScreenWhilePickerIsOpenInvalidatesAutomaticUnlock() {
+        val (model, _) = launchConversation()
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        scenario!!.onActivity { it.chooseDocument() }
+        assertTrue(device.wait(Until.gone(By.pkg(app.packageName).depth(0)), 10000))
+        val pickerPackage = requireNotNull(device.currentPackageName)
+        assertTrue(model.hasExternalSelection)
+        try {
+            device.sleep()
+            compose.waitUntil(10000) { !model.hasExternalSelection }
+        } finally {
+            device.wakeUp()
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(
+                InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("wm dismiss-keyguard")
+            ).use { it.readBytes() }
+        }
+        assertTrue("Wake must return to the existing system picker", device.wait(Until.hasObject(By.pkg(pickerPackage).depth(0)), 10000))
+        device.pressBack()
+        assertTrue("Back must return to Touch before querying Compose", device.wait(Until.hasObject(By.pkg(app.packageName).depth(0)), 10000))
+        compose.waitUntil(15000) {
+            runCatching { compose.onAllNodesWithTag("timer-screen").fetchSemanticsNodes().isNotEmpty() }.getOrDefault(false)
+        }
+        scenario!!.onActivity {
+            assertTrue(model.locked)
+            assertNull(model.pendingSelection)
+        }
     }
     @Test fun rotationLockAlsoCoversLockedTimerLoginAndRecreation() {
         app.getSharedPreferences("display_preferences", Context.MODE_PRIVATE).edit()

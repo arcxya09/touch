@@ -56,6 +56,48 @@ class ChatLayoutInstrumentedTest {
         InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(command)
     ).bufferedReader().use { it.readText().trim() }
 
+    @Test fun pendingMessagesOnlyShowFailureAfterExplicitRejection() {
+        var sending by mutableStateOf(false)
+        var delivery by mutableStateOf(PendingDelivery.Queued)
+        compose.setContent { TouchTheme { PendingMessageActions(sending, false, {}, {}, delivery) } }
+        compose.onNodeWithText("待发送").assertIsDisplayed()
+        compose.onNodeWithText("发送失败").assertDoesNotExist()
+        compose.runOnIdle { sending = true; delivery = PendingDelivery.Unconfirmed }
+        compose.onNodeWithText("发送中").assertIsDisplayed()
+        compose.onNodeWithText("重试").assertIsNotEnabled()
+        compose.onNodeWithText("删除").assertIsNotEnabled()
+        compose.runOnIdle { sending = false }
+        compose.onNodeWithText("等待确认").assertIsDisplayed()
+        compose.onNodeWithText("发送失败").assertDoesNotExist()
+        compose.onNodeWithText("重试").assertIsEnabled()
+        compose.runOnIdle { delivery = PendingDelivery.Failed }
+        compose.onNodeWithText("发送失败").assertIsDisplayed()
+    }
+
+    @Test fun backCannotDismissAnAttachmentConfirmationWhileUploading() {
+        var working by mutableStateOf(false)
+        var visible by mutableStateOf(true)
+        var submitted = 0
+        var cancelled = 0
+        compose.setContent { TouchTheme {
+            if (visible) SelectionConfirmationDialog(false, working, true, { visible = false }, { working = true; submitted++ },
+                cancel = { cancelled++; working = false; visible = false }) {
+                Text("selected-image.png")
+            }
+        } }
+        compose.onNodeWithText("发送").performClick()
+        compose.onNodeWithText("取消上传").assertIsEnabled()
+        compose.onNodeWithText("发送").assertIsNotEnabled()
+        Espresso.pressBack()
+        compose.onNodeWithText("selected-image.png").assertIsDisplayed()
+        compose.runOnIdle { assertEquals(1, submitted); assertEquals(0, cancelled); assertTrue(visible) }
+        compose.onNodeWithText("取消上传").performClick()
+        compose.onNodeWithText("selected-image.png").assertDoesNotExist()
+        compose.runOnIdle { assertEquals(1, cancelled); assertFalse(working); visible = true }
+        Espresso.pressBack()
+        compose.onNodeWithText("selected-image.png").assertDoesNotExist()
+    }
+
     @Test fun headerTextGroupAlignsWithActionsAndAttachmentSitsInsideInput() {
         var attachments = 0
         var diagnostics = 0

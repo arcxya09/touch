@@ -12,6 +12,7 @@ import com.arcxya09.touch.data.ChatMessage
 
 class AlertNotifications(private val app: TouchApp) {
     private val manager get() = app.getSystemService(NotificationManager::class.java)
+    private val publication = NotificationPublication()
     @Volatile var chatVisible = false
     fun allowed() = NotificationManagerCompat.from(app).areNotificationsEnabled()
     fun channels() {
@@ -45,6 +46,7 @@ class AlertNotifications(private val app: TouchApp) {
         .setGroup(GROUP).setContentIntent(destination).setAutoCancel(true).setSilent(true)
         .setVisibility(NotificationCompat.VISIBILITY_PUBLIC).setNumber(0).build()
     suspend fun incoming(messages: List<ChatMessage>) {
+        val ticket = publication.ticket()
         val options = app.alertSettings.read()
         val owner = app.repository.api.user?.id
         if (!options.canRun(owner) || !AlertService.running || chatVisible || !allowed()) return
@@ -53,28 +55,33 @@ class AlertNotifications(private val app: TouchApp) {
         val latest = app.repository.messages(candidate.conversationId)
             .firstOrNull { it.id == candidate.id && it.kind != "recalled" } ?: return
         val peer = app.repository.conversations().firstOrNull { it.id == latest.conversationId }?.peer
-        val locked = app.getSystemService(KeyguardManager::class.java).isDeviceLocked ||
-            !app.getSystemService(android.os.PowerManager::class.java).isInteractive
-        val destination = open(latest.conversationId)
-        val notification = if (options.mode == AlertMode.DISCREET || locked) discreet(destination) else {
-            val body = when (latest.kind) { "text" -> latest.text.take(160); "image" -> "[图片]"; else -> "[文件]" }
-            NotificationCompat.Builder(app, CONTENT_CHANNEL).setSmallIcon(R.drawable.ic_touch)
-                .setContentTitle(peer?.name ?: "新消息").setContentText(body)
-                .setGroup(GROUP).setContentIntent(destination).setAutoCancel(true).setNumber(0)
-                .setVisibility(NotificationCompat.VISIBILITY_SECRET).build()
+        publication.publish(ticket) {
+            // Recall, clearing, lock-screen concealment and publication share this lock.
+            // No queued read can restore content after one of those operations has finished.
+            if (!AlertService.running || app.alertSettings.read() != options || chatVisible ||
+                !options.canRun(app.repository.api.user?.id) || !allowed()) return@publish
+            val locked = app.getSystemService(KeyguardManager::class.java).isDeviceLocked ||
+                !app.getSystemService(android.os.PowerManager::class.java).isInteractive
+            val destination = open(latest.conversationId)
+            val notification = if (options.mode == AlertMode.DISCREET || locked) discreet(destination) else {
+                val body = when (latest.kind) { "text" -> latest.text.take(160); "image" -> "[图片]"; else -> "[文件]" }
+                NotificationCompat.Builder(app, CONTENT_CHANNEL).setSmallIcon(R.drawable.ic_touch)
+                    .setContentTitle(peer?.name ?: "新消息").setContentText(body)
+                    .setGroup(GROUP).setContentIntent(destination).setAutoCancel(true).setNumber(0)
+                    .setVisibility(NotificationCompat.VISIBILITY_SECRET).build()
+            }
+            runCatching { manager.notify(MESSAGE_ID, notification) }
         }
-        // A mode switch/disable may have happened during database reads.
-        if (!AlertService.running || app.alertSettings.read() != options || chatVisible || !options.canRun(app.repository.api.user?.id)) return
-        runCatching { manager.notify(MESSAGE_ID, notification) }
     }
-    fun concealOnLock() {
-        val current = manager.activeNotifications.firstOrNull { it.id == MESSAGE_ID }?.notification ?: return
+    fun concealOnLock() = publication.invalidate {
+        // Invalidate pending work even when Android has no currently displayed message.
+        val current = manager.activeNotifications.firstOrNull { it.id == MESSAGE_ID }?.notification ?: return@invalidate
         if (allowed()) {
             manager.cancel(MESSAGE_ID)
             runCatching { manager.notify(MESSAGE_ID, discreet(current.contentIntent ?: open())) }
         }
     }
-    fun clearMessages() = manager.cancel(MESSAGE_ID)
+    fun clearMessages() = publication.invalidate { manager.cancel(MESSAGE_ID) }
     // Android may synthesize a group summary that launches MAIN without our extras.
     fun hasDiscreetMessage() = manager.activeNotifications.any {
         it.id == MESSAGE_ID && it.notification.channelId == DISCREET_CHANNEL

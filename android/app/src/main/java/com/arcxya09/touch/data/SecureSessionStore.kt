@@ -4,7 +4,8 @@ import com.arcxya09.touch.security.SecureStore
 import org.json.JSONObject
 
 /** Credential failures never imply permission to delete independently encrypted local content. */
-class SecureSessionStore(private val secure: SecureStore) {
+class SecureSessionStore(private val secure: SecureStore,
+                         private val persist: suspend (String?) -> Unit = { secure.write("session", it) }) {
     @Volatile var value: JSONObject? = null
         private set
 
@@ -19,7 +20,7 @@ class SecureSessionStore(private val secure: SecureStore) {
     }
 
     suspend fun save(session: JSONObject?) {
-        secure.write("session", session?.toString())
+        persist(session?.toString())
         value = session
     }
 

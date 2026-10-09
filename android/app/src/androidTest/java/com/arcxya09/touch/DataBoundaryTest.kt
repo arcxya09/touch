@@ -104,22 +104,31 @@ class DataBoundaryTest {
     }
 
     @Test fun queueingConsumesOnlyTheSubmittedTextAndNeverAnAttachmentDraft() = runBlocking {
-        isolated { repo, db, _, _ ->
+        isolated { repo, db, _, secure ->
+            val owner = UUID.randomUUID().toString()
+            db.cache().put(TouchDatabase.Item("meta", "owner", owner))
+            secure.write("session", session(owner).toString())
+            repo.initialize()
             val now = System.currentTimeMillis() / 1000
             fun draft(text: String) = db.cache().put(TouchDatabase.Item("draft", "c",
                 JSONObject().put("text", text).put("created_at", now).put("conversation_id", "c").toString()))
-            val stopAfterQueue: suspend () -> Unit = { throw CancellationException("queued, offline fixture") }
+            val queuedStop = CancellationException("queued, offline fixture")
+            val stopAfterQueue: suspend () -> Unit = { throw queuedStop }
             draft("尚未发送的文字")
-            runCatching { repo.send("c", attachment = FileItem("file", "fixture.txt", "text/plain", "file", 3, "hash"), queued = stopAfterQueue) }
+            assertSame(queuedStop, runCatching {
+                repo.send("c", attachment = FileItem("file", "fixture.txt", "text/plain", "file", 3, "hash"), queued = stopAfterQueue)
+            }.exceptionOrNull())
             assertEquals("尚未发送的文字", JSONObject(db.cache().get("draft", "c")!!.json).getString("text"))
             assertEquals("file", JSONObject(db.cache().pendingItems().single().body).getString("kind"))
             draft("发送期间编辑的新文字")
-            runCatching { repo.send("c", text = "原提交文字", queued = stopAfterQueue) }
+            assertSame(queuedStop, runCatching { repo.send("c", text = "原提交文字", queued = stopAfterQueue) }.exceptionOrNull())
             assertEquals("发送期间编辑的新文字", JSONObject(db.cache().get("draft", "c")!!.json).getString("text"))
             draft("原提交文字")
-            runCatching { repo.send("c", text = "原提交文字", queued = stopAfterQueue) }
+            assertSame(queuedStop, runCatching { repo.send("c", text = "原提交文字", queued = stopAfterQueue) }.exceptionOrNull())
             assertNull(db.cache().get("draft", "c"))
             assertEquals(3, db.cache().pendingItems().size)
+            assertTrue(repo.sending.value.isEmpty())
+            assertTrue(repo.messages("c").all { it.pendingDelivery == PendingDelivery.Queued })
         }
     }
 
