@@ -166,13 +166,27 @@ class PrivacyInstrumentedTest {
         try {
             requireNotNull(resolver.openOutputStream(media)).use { it.write(png) }
             assertEquals(1, resolver.update(media, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null))
+            val mediaColumns = arrayOf(MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.MIME_TYPE,
+                MediaStore.MediaColumns.IS_PENDING, MediaStore.MediaColumns.SIZE, MediaStore.MediaColumns.WIDTH,
+                MediaStore.MediaColumns.HEIGHT, MediaStore.MediaColumns.DATE_MODIFIED)
+            requireNotNull(resolver.query(media, mediaColumns, null, null, null)).use { row ->
+                assertTrue("The published fixture must be indexed in MediaStore", row.moveToFirst())
+                Log.i("TouchPickerTest", "published=" + mediaColumns.mapIndexed { index, column -> "$column=${row.getString(index)}" }.joinToString())
+                assertEquals(name, row.getString(0))
+                assertEquals("image/png", row.getString(1))
+                assertEquals(0, row.getInt(2))
+                assertEquals(png.size.toLong(), row.getLong(3))
+                assertEquals(64, row.getInt(4))
+                assertEquals(64, row.getInt(5))
+                assertTrue("The image scan must populate its modification time", row.getLong(6) > 0)
+            }
             compose.onNodeWithContentDescription("添加图片或文件").performClick()
             compose.onNodeWithText("图片").performClick()
             stage = "open-system-picker"
             assertTrue(device.wait(Until.gone(By.pkg(app.packageName).depth(0)), 10000))
             compose.waitUntil(10000) { model.locked && !model.mayShowChat }
             stage = "select-system-photo"
-            selectSystemPhoto(device, name)
+            selectSystemPhoto(device, name) { stage = it }
             stage = "return-to-private-chat"
             compose.waitUntil(15000) { model.pendingSelection != null && model.mayShowChat }
             val selected = requireNotNull(model.pendingSelection).first
@@ -219,7 +233,7 @@ class PrivacyInstrumentedTest {
             assertEquals("Remove only this test's generated gallery image", 1, resolver.delete(media, null, null))
         }
     }
-    private fun selectSystemPhoto(device: UiDevice, name: String) {
+    private fun selectSystemPhoto(device: UiDevice, name: String, stage: (String) -> Unit) {
         // Wait for an actual picker root: Touch disappearing also occurs during the transition.
         val root = device.wait(Until.findObject(By.pkg(Pattern.compile(
             "com\\.(?:google\\.)?android\\.(?:documentsui|photopicker|providers\\.media(?:\\.module)?)"
@@ -227,9 +241,22 @@ class PrivacyInstrumentedTest {
         assertNotNull("The system picker must finish opening", root)
         val pickerPackage = root!!.applicationPackage
         val photo = if (pickerPackage.endsWith(".documentsui")) {
-            // API 29/31 use DocumentsUI's Recent directory. Its grid uses icon_thumb, not
-            // PhotoPicker's icon_thumbnail; wait for the directory and target its exact name.
+            // API 29/31 can show an empty Recent view after publication. Browse the
+            // indexed image's actual album through the system provider instead.
             assertTrue("DocumentsUI must load its directory", device.wait(Until.hasObject(By.res(pickerPackage, "dir_list")), 10000))
+            stage("open-documents-roots")
+            val roots = device.wait(Until.findObject(By.pkg(pickerPackage).desc("Show roots")), 5000)
+            assertNotNull("DocumentsUI must expose its roots navigation", roots)
+            roots!!.click()
+            stage("open-images-root")
+            val images = device.wait(Until.findObject(By.pkg(pickerPackage).text("Images")), 5000)
+            assertNotNull("The system media provider must expose its Images root", images)
+            clickPickerAction(images!!)
+            stage("open-fixture-album")
+            val album = device.wait(Until.findObject(By.pkg(pickerPackage).text("TouchPickerTests")), 5000)
+            assertNotNull("The published fixture album must be visible in Images", album)
+            clickPickerAction(album!!)
+            stage("select-fixture-photo")
             device.wait(Until.findObject(By.pkg(pickerPackage).text(name)), 5000)
         } else {
             // The only fixture image is also the newest local photo. Its bytes are checked
@@ -243,12 +270,10 @@ class PrivacyInstrumentedTest {
         photo!!.click()
         if (pickerPackage.endsWith(".photopicker")) {
             // The standalone picker now confirms single selections via SelectionBar too.
-            // Read its own localized label instead of assuming the language or clicking Preview.
-            val resources = app.packageManager.getResourcesForApplication(pickerPackage)
-            val doneId = resources.getIdentifier("photopicker_done_button_label", "string", pickerPackage)
-                .takeIf { it != 0 } ?: resources.getIdentifier("photopicker_done_button_label", "string", "com.android.photopicker")
-            assertTrue("The standalone picker must expose its confirmation label", doneId != 0)
-            val confirmation = device.wait(Until.findObject(By.pkg(pickerPackage).text(resources.getString(doneId)).enabled(true)), 5000)
+            // CI uses English. Locate the visible action without requesting visibility of
+            // the system package, whose APK resources are intentionally hidden from Touch.
+            stage("confirm-system-photo")
+            val confirmation = device.wait(Until.findObject(By.pkg(pickerPackage).text("Done").enabled(true)), 5000)
             assertNotNull("Selecting a photo must expose the standalone picker's Done action", confirmation)
             clickPickerAction(confirmation!!)
         }
@@ -260,7 +285,7 @@ class PrivacyInstrumentedTest {
             if (parent.applicationPackage != label.applicationPackage) break
             target = parent
         }
-        assertTrue("The picker confirmation must have a click action", target.isClickable)
+        assertTrue("The picker action must have a clickable target", target.isClickable)
         target.click()
     }
     private fun recordPickerFailure(device: UiDevice, model: AppViewModel, stage: String) {

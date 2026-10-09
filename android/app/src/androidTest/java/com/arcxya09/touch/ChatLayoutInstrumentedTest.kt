@@ -2,6 +2,7 @@ package com.arcxya09.touch
 
 import android.graphics.Bitmap
 import android.os.ParcelFileDescriptor
+import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -28,7 +29,6 @@ import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.test.espresso.Espresso
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.UiDevice
 import com.arcxya09.touch.ui.*
 import com.arcxya09.touch.data.*
 import kotlinx.coroutines.CoroutineScope
@@ -83,13 +83,16 @@ class ChatLayoutInstrumentedTest {
         var submitted = 0
         var cancelled = 0
         var dialogView: View? = null
-        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
         fun pressBackOnFocusedDialog() {
             compose.onNodeWithText("selected-image.png").assertIsDisplayed()
             compose.waitUntil(10000) {
                 compose.runOnUiThread { dialogView?.let { it.isAttachedToWindow && it.hasWindowFocus() } == true }
             }
-            assertTrue("Back must be injected into the current focused dialog", device.pressBack())
+            // UiDevice.pressBack waits for a content-change accessibility event, which a
+            // correctly non-dismissible uploading dialog deliberately does not produce.
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            instrumentation.waitForIdleSync()
             compose.waitForIdle()
         }
         compose.setContent { TouchTheme {
