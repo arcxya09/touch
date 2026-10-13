@@ -33,7 +33,7 @@ AppViewModel 仍协调现有功能，没有更换整个应用框架。新增读�
 
 对应回归入口：[ReplyStorageTest 的真实 v1 迁移与草稿回填](../android/app/src/androidTest/java/com/arcxya09/touch/ReplyStorageTest.kt)、[VisibilityMigrationTest](../android/app/src/androidTest/java/com/arcxya09/touch/VisibilityMigrationTest.kt)、[LocalMessageActionsTest](../android/app/src/androidTest/java/com/arcxya09/touch/LocalMessageActionsTest.kt)、[RetentionPolicy](../android/app/src/main/java/com/arcxya09/touch/data/RetentionPolicy.kt)、[AttachmentCleanup](../android/app/src/main/java/com/arcxya09/touch/data/AttachmentCleanup.kt)。这些程序测试不能替代真实历史正式 APK 的覆盖安装。
 
-客户端声明 `X-Touch-Capabilities: recall-v1`；服务端在有效移动会话中记录能力，只有双方当前会话均支持时开放撤回。旧客户端遇到不能解释的撤回状态时收到 409 更新提示，避免错误呈现或跳过事件。[协议实现](../server/app/capabilities.py)与[服务端迁移 a731c02e9714](../server/migrations/versions/a731c02e9714_session_capabilities.py)须一起部署；应先在隔离环境迁移服务端、验证新旧客户端组合，再放行客户端升级。部署与新旧正式客户端混用验收：**未执行**。
+撤回能力协商已在 2.0.5 取消：发送者可直接撤回，服务端不再读取 `X-Touch-Capabilities`。[服务端迁移 a731c02e9714](../server/migrations/versions/a731c02e9714_session_capabilities.py) 新增的 `supports_recall` 列不再使用，为避免新迁移而保留；`can_recall` 与 `capabilities` 字段仅为兼容 2.0.3／2.0.4 客户端保留。
 
 ## 设计系统与用户入口
 

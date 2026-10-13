@@ -26,7 +26,7 @@
 - `GET /contacts/search?username=<完整账号>`，不提供模糊搜索或用户目录。
 - `GET /contacts`，返回联系人及待处理申请。
 - `POST /contacts/requests`：`user_id`。
-- 管理员主动添加时返回 `state=accepted` 并立即建立会话；普通用户返回 `pending`，包括普通用户向管理员发起申请。权限只取自服务端账号，客户端不能通过提交角色字段绕过确认。
+- 管理员主动添加时返回 `state=accepted` 并立即建立会话；普通用户返回 `pending`，包括普通用户向管理员发起申请；若对方已向自己发出待处理申请，则视为接受，返回 `accepted` 并建立会话。权限只取自服务端账号，客户端不能通过提交角色字段绕过确认。
 - `POST /contacts/{peer_id}`：`action` 为 `accept`、`reject`、`remove`；只有申请接收方能接受或拒绝。
 
 ## 消息
@@ -51,11 +51,11 @@
 
 原消息回收后引用元数据仍保留；客户端显示“原消息不可用”。本地过期检查适用于引用缓存、草稿引用和定位结果。服务端先迁移到 `f620ba741901`，再发布客户端；迁移新增可空字段，不改变旧请求行为。
 
-## 撤回能力协商
+## 撤回
 
-请求头 `X-Touch-Capabilities: recall-v1` 声明客户端能处理撤回。登录和 `/auth/me` 记录当前移动会话声明；私有用户 JSON 的 `capabilities: ["recall-v1"]` 表示服务端支持。会话返回 `can_recall`，要求请求者已声明能力且双方当前有效会话均支持。旧客户端正常收发不要求此请求头。
+2.0.5 起不再协商撤回能力。服务端忽略请求头 `X-Touch-Capabilities`，会话的 `can_recall` 恒为 `true`，私有用户 JSON 的 `capabilities: ["recall-v1"]` 和 `mobile_sessions.supports_recall` 列仅为兼容 2.0.3／2.0.4 客户端保留。
 
-`POST /conversations/{id}/messages/{message_id}/recall` 仅发送者可调用，服务端再次检查双方能力，条件不足返回 409。撤回后的 `kind=recalled` 消息不含原正文、附件或引用；普通用户历史/上下文/摘要过滤该记录，管理员可见。旧端同步遇到实际撤回载荷，或历史/上下文/摘要实际要返回撤回记录时，返回 409 `此会话包含新版消息状态，请更新 Touch 后继续同步`，不返回假附件或普通文本占位。迁移要求及本机行为见 [消息撤回与本机清理](message-actions.md)。
+`POST /conversations/{id}/messages/{message_id}/recall` 仅发送者可调用，对方无需在线或更新。撤回后的 `kind=recalled` 消息不含原正文、附件或引用；普通用户历史/上下文/摘要过滤该记录，管理员可见。迁移要求及本机行为见 [消息撤回与本机清理](message-actions.md)。
 
 ## 同步
 

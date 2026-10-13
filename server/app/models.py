@@ -45,6 +45,7 @@ class MobileSession(Base):
     access_expires: Mapped[int] = mapped_column(BigInteger)
     refresh_expires: Mapped[int] = mapped_column(BigInteger)
     epoch: Mapped[int] = mapped_column(Integer)
+    # Unused since 2.0.5 dropped capability negotiation; kept to avoid a schema migration.
     supports_recall: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 

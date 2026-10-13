@@ -6,7 +6,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from pydantic import ValidationError
@@ -14,7 +14,7 @@ from pydantic import ValidationError
 from .config import settings
 from .account_deletion import delete_account, lock_accounts
 from .database import get_db
-from .models import AdminSession, Attachment, Audit, MobileSession, User, now
+from .models import AdminSession, Attachment, Audit, Contact, MobileSession, User, now
 from .security import digest, dummy_hash, limiter, password_hasher, token, verify_password
 from .services import emit
 from .profiles import Profile, avatar_response, profile_changed, read_avatar, set_avatar
@@ -194,6 +194,10 @@ def update_user(user_id: str, request: Request, action: str = Form(), csrf: str 
     user.session_epoch += 1
     db.execute(delete(MobileSession).where(MobileSession.user_id == user.id))
     emit(db, [user.id], "account_changed", {})
+    if action != "reset":
+        # Peers' can_send depends on this account being active.
+        peers = db.scalars(select(Contact).where(or_(Contact.a == user.id, Contact.b == user.id))).all()
+        emit(db, [c.b if c.a == user.id else c.a for c in peers], "contacts_changed", {})
     db.add(Audit(actor_id=auth[1].id, action=action, target_id=user.id))
     db.commit()
     return RedirectResponse("/admin?notice=" + action, 303)
