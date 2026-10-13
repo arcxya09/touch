@@ -70,6 +70,42 @@ class MessageDeliveryInstrumentedTest {
         }
     }
 
+    @Test fun syncRedeliversUnconfirmedSendsButLeavesRejectionsToTheUser() = runBlocking {
+        fixture { f ->
+            val offline = java.util.concurrent.atomic.AtomicBoolean(true)
+            val clientIds = java.util.Collections.synchronizedList(mutableListOf<String>())
+            f.server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse = when {
+                    request.method == "POST" -> {
+                        val body = JSONObject(request.body.clone().readUtf8())
+                        clientIds += body.getString("client_id")
+                        when {
+                            body.getString("text") == "rejected" -> MockResponse().setResponseCode(403).setBody("{\"detail\":\"blocked fixture\"}")
+                            offline.get() -> MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST)
+                            else -> MockResponse().setBody(f.ack(request).toString())
+                        }
+                    }
+                    request.path == "/api/v1/auth/me" -> MockResponse().setBody(f.user.toString())
+                    request.path?.startsWith("/api/v1/sync?") == true -> MockResponse().setBody(JSONObject()
+                        .put("events", JSONArray()).put("cursor", 0).put("has_more", false).toString())
+                    else -> MockResponse().setBody("[]")
+                }
+            }
+            val rejected = runCatching { f.repo.send("A", "rejected") }.exceptionOrNull()
+            assertTrue(rejected is ApiException && rejected.status == 403)
+            val id = withTimeout(10_000) { f.repo.send("A", "sent while offline") }
+            assertEquals(PendingDelivery.Unconfirmed, f.repo.messages("A").single { it.clientId == id }.pendingDelivery)
+            offline.set(false)
+            f.repo.sync()
+            val messages = f.repo.messages("A")
+            val delivered = messages.single { it.clientId == id }
+            assertFalse("The unconfirmed send is retried once the network is back", delivered.pending)
+            assertEquals(PendingDelivery.Failed, messages.single { it.pending }.pendingDelivery)
+            assertEquals("A rejection is never retried automatically", 1, clientIds.count { it != id })
+            assertTrue(f.repo.sending.value.isEmpty())
+        }
+    }
+
     @Test fun ambiguousResponseSurvivesReloadAndRetryReusesTheSameClientId() = runBlocking {
         fixture { f ->
             val attempts = AtomicInteger()

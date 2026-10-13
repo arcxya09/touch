@@ -67,7 +67,7 @@ class AppViewModel internal constructor(application: Application, val repository
     var pendingNotificationSettings = false
     var pendingNotificationEnable = false
     fun renderedChat() {
-        app.alerts.chatVisible = foreground && mayShowChat && user != null && user?.mustChange == false && screen != "timer"
+        app.alerts.chatVisible = foreground && mayShowChat && user != null && user?.mustChange == false && destination != Screen.Timer
         if (app.alerts.chatVisible) app.alerts.clearMessages()
     }
     var safety by mutableStateOf(com.arcxya09.touch.security.SafetyOptions()); private set
@@ -202,7 +202,7 @@ class AppViewModel internal constructor(application: Application, val repository
             if (quote == submittedQuote) quote = null
             persistDraft()
         }
-        pageBefore = Long.MAX_VALUE; windowFirst = null; windowLast = null; browsingHistory = false
+        followLatest()
         highlightId = null
         // Publish the queued message before asking Compose to scroll to the last item.
         reloadLocal(); scrollRequest++
@@ -215,6 +215,7 @@ class AppViewModel internal constructor(application: Application, val repository
         withContext(Dispatchers.IO) { repository.db.cache().put(TouchDatabase.Item("meta", "diagnostics", value.toString())) }
         repository.connection.detailed(value); diagnosticDetails = value
     }
+    private fun followLatest() { pageBefore = Long.MAX_VALUE; windowFirst = null; windowLast = null; browsingHistory = false }
     fun holdHistory() {
         if (windowFirst == null && !browsingHistory && messages.isNotEmpty()) {
             val confirmed = messages.filterNot { it.pending }
@@ -229,11 +230,11 @@ class AppViewModel internal constructor(application: Application, val repository
         if (!browsingHistory || hasNewerMessages || messages.isEmpty()) return
         // Release the frozen window only when this page actually includes the newest message.
         // Keep the rendered rows and scroll position; no network request or page replacement.
-        pageBefore = Long.MAX_VALUE; windowFirst = null; windowLast = null; browsingHistory = false
+        followLatest()
     }
     fun latest() = action(Operation.Conversation) {
         val ticket = conversationTicket()
-        pageBefore = Long.MAX_VALUE; windowFirst = null; windowLast = null; browsingHistory = false
+        followLatest()
         highlightId = null
         val more = conversationReader.history(ticket.conversationId ?: return@action)
         if (accepts(ticket)) { hasMore = more; reloadLocal(); scrollRequest++ }
@@ -374,7 +375,7 @@ class AppViewModel internal constructor(application: Application, val repository
                         if (repository.purgeIfDue() || (user != null && repository.api.user == null)) reloadLocal()
                         if (retentionEnabled && draftEditedAt > 0 && draftEditedAt <= expiryTick - retentionSeconds) {
                             conversationId?.let { draftJobs.remove(it)?.cancel(); draftsInMemory.remove(it) }
-                            draftText = ""; quote = null
+                            draftText = ""; quote = null; draftEditedAt = 0
                         }
                         if (foreground && mayShowChat && !isWorking(Operation.Settings) && pendingNotificationEnable) {
                             pendingNotificationEnable = false; enableAlerts(true)
@@ -383,7 +384,7 @@ class AppViewModel internal constructor(application: Application, val repository
                         val previewTicket = conversationTicket()
                         if (shownPreview != null && withContext(Dispatchers.IO) { !shownPreview.second.valid() } &&
                             preview === shownPreview && accepts(previewTicket)) {
-                            preview = null; if (screen == "preview") screen = "chat"
+                            preview = null; if (destination == Screen.Preview) navigate(Screen.Chat)
                         }
                     } catch (e: Exception) { if (e is CancellationException) throw e; storageError = true; cacheReady = false; preview = null; messages = emptyList(); conversations = emptyList() }
                 }
@@ -420,18 +421,18 @@ class AppViewModel internal constructor(application: Application, val repository
         if (!AlertService.running) repository.stop()
         transfer = null; updateProgress = null; connectionStatus = ConnectionStatus.CONNECTING
         preview = null
-        if (screen == "preview") screen = if (conversationId != null) "chat" else "home"
+        if (destination == Screen.Preview) navigate(if (conversationId != null) Screen.Chat else Screen.Home)
     }
     fun hide() {
         background()
         foreground = true
         cacheReady = true
         locked = true
-        if (!privacy) screen = "timer"
+        if (!privacy) navigate(Screen.Timer)
     }
     fun returnFromTimer() {
         if (privacy || !mayShowChat) return
-        screen = "home"; startForegroundWork()
+        navigate(Screen.Home); startForegroundWork()
     }
     fun unlock(points: List<Int>) {
         if (!privacy || !initialized || pattern.isEmpty()) return
@@ -439,7 +440,7 @@ class AppViewModel internal constructor(application: Application, val repository
         if (MessageDigest.isEqual(Pattern.encode(points).toByteArray(), pattern.toByteArray())) {
             attempts.edit().clear().commit()
             locked = false; error = null
-            if (screen == "timer") screen = "home"
+            if (destination == Screen.Timer) navigate(Screen.Home)
             startForegroundWork()
         } else {
             val count = attempts.getInt("failures", 0) + 1
@@ -453,14 +454,14 @@ class AppViewModel internal constructor(application: Application, val repository
         app.secureStore.write("privacy", JSONObject().put("enabled", true).put("pattern", newPattern).toString())
         privacyChoiceMade = true; needsPrivacySetup = false
         pattern = newPattern
-        privacy = true; locked = true; screen = "home"; showUpdate = false
+        privacy = true; locked = true; navigate(Screen.Home); showUpdate = false
         syncJob?.cancel(); app.alerts.chatVisible = false; if (!AlertService.running) repository.stop()
     }
     fun skipPrivacySetup() = action(Operation.Session, allowSetup = true) {
         if (!needsPrivacySetup || user == null || user?.mustChange == true) return@action
         app.secureStore.write("privacy", JSONObject().put("enabled", false).toString())
         privacyChoiceMade = true; needsPrivacySetup = false
-        screen = "home"; startForegroundWork()
+        navigate(Screen.Home); startForegroundWork()
     }
     fun disablePrivacy(password: String) = action {
         repository.verifyPassword(password)
@@ -477,16 +478,14 @@ class AppViewModel internal constructor(application: Application, val repository
         }
         repository.login(name, password); user = repository.api.user; credentialRecoveryRequired = false
         draftsInMemory.clear(); conversationRequests.invalidate(); reloadLocal()
-        screen = "home"; error = null; startForegroundWork()
+        navigate(Screen.Home); error = null; startForegroundWork()
     }
     fun password(old: String, new: String) = action(Operation.Session, allowSetup = true) {
-        repository.updatePassword(old, new); user = repository.api.user; screen = "home"; startForegroundWork()
+        repository.updatePassword(old, new); user = repository.api.user; navigate(Screen.Home); startForegroundWork()
     }
     fun logout() = action(Operation.Session, allowSetup = true) {
         syncJob?.cancel(); repository.logout(); user = null
-        cancelDraftJobs(); draftText = ""; quote = null; draftsInMemory.clear(); conversationRequests.invalidate()
-        conversations = emptyList(); contacts = emptyList(); messages = emptyList(); conversationId = null; pendingAvatar = null; pendingSelection = null; preview = null
-        screen = "home"; if (privacy) locked = true
+        cancelDraftJobs(); clearSignedOutState()
     }
     private var pendingMessageNotification = false
     private var notificationConversationId: String? = null
@@ -494,20 +493,20 @@ class AppViewModel internal constructor(application: Application, val repository
         pendingMessageNotification = true
         notificationConversationId = id
         // Read the persisted privacy choice before navigation; cold starts may still be loading it.
-        if (privacy) { hide(); screen = "timer" }
+        if (privacy) { hide(); navigate(Screen.Timer) }
         if (initialized && foreground && mayShowChat) startForegroundWork()
     }
     private fun startForegroundWork() {
         if (!foreground || !mayShowChat) return
         if (pendingNotificationSettings && user != null && user?.mustChange == false) {
-            pendingNotificationSettings = false; screen = "notifications"
+            pendingNotificationSettings = false; navigate(Screen.Notifications)
         }
         if (pendingMessageNotification && !isWorking(Operation.Session) && user != null && user?.mustChange == false) {
             pendingMessageNotification = false
             val id = notificationConversationId
             notificationConversationId = null
             if (id != null && conversations.any { it.id == id }) openConversation(id)
-            else screen = "home"
+            else navigate(Screen.Home)
         }
         autoUpdate()
         if (user == null || user?.mustChange == true || syncJob?.isActive == true) return
@@ -547,13 +546,16 @@ class AppViewModel internal constructor(application: Application, val repository
         }
     }
 
+    /** Drops every in-memory trace of the account that just signed out. */
+    private fun clearSignedOutState() {
+        app.alerts.chatVisible = false
+        conversationRequests.invalidate(); draftsInMemory.clear(); draftText = ""; quote = null
+        conversations = emptyList(); contacts = emptyList(); messages = emptyList(); preview = null
+        conversationId = null; pendingSelection = null; pendingAvatar = null; navigate(Screen.Home)
+        if (privacy) locked = true
+    }
     private suspend fun reloadLocal() {
-        if (user != null && repository.api.user == null) {
-            app.alerts.chatVisible = false
-            conversations = emptyList(); contacts = emptyList(); messages = emptyList(); preview = null
-            conversationId = null; pendingSelection = null; pendingAvatar = null; screen = "home"
-            if (privacy) locked = true
-        }
+        if (user != null && repository.api.user == null) clearSignedOutState()
         user = repository.api.user
         credentialRecoveryRequired = repository.credentialRecoveryRequired
         if (user == null) {
@@ -575,7 +577,7 @@ class AppViewModel internal constructor(application: Application, val repository
     private var reportedRead = 0L
     fun markVisibleRead(seq: Long) {
         val id = conversationId ?: return
-        if (!foreground || !mayShowChat || screen != "chat" || seq <= reportedRead) return
+        if (!foreground || !mayShowChat || destination != Screen.Chat || seq <= reportedRead) return
         val ticket = conversationTicket()
         reportedRead = seq
         viewModelScope.launch {
@@ -593,7 +595,7 @@ class AppViewModel internal constructor(application: Application, val repository
         if (conversationId != id) messages = emptyList()
         navigate(Screen.Chat)
         conversationId = id; reportedRead = 0
-        pageBefore = Long.MAX_VALUE; windowFirst = null; windowLast = null; browsingHistory = false
+        followLatest()
         draftText = ""; quote = null; draftEditedAt = 0; hasMore = false
         val ticket = conversationTicket()
         val remembered = draftsInMemory[id]?.takeIf { it.editedAt > visibilityFloor }
@@ -660,7 +662,7 @@ class AppViewModel internal constructor(application: Application, val repository
         conversationRequests.invalidate(); cancelDraftJobs(); draftsInMemory.clear()
         repository.clearLocalHistory()
         draftText = ""; quote = null; preview = null; pendingSelection = null; highlightId = null
-        pageBefore = Long.MAX_VALUE; windowFirst = null; windowLast = null; browsingHistory = false
+        followLatest()
         hasMore = false; reloadLocal(); scrollRequest++
     }
     fun discard(id: String) = action(Operation.Send) { repository.discard(id); reloadLocal() }
@@ -925,10 +927,7 @@ class AppViewModel internal constructor(application: Application, val repository
         if (e is ApiException && e.status == 401) {
             withContext(NonCancellable) {
                 syncJob?.cancel(); repository.logout(false); user = null
-                conversationRequests.invalidate(); draftsInMemory.clear()
-                conversations = emptyList(); contacts = emptyList(); messages = emptyList(); preview = null; pendingAvatar = null; pendingSelection = null
-                conversationId = null; screen = "home"
-                if (privacy) locked = true
+                clearSignedOutState()
             }
         }
         if (visible && mayShowSession) error = e.message ?: "操作失败，请检查网络后重试"

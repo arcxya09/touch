@@ -9,6 +9,7 @@ import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.arcxya09.touch.BuildConfig
 import com.arcxya09.touch.data.Api
+import com.arcxya09.touch.data.readBounded
 import com.arcxya09.touch.data.sha256
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
@@ -19,7 +20,6 @@ import okhttp3.Request
 import org.json.JSONObject
 import org.json.JSONArray
 import java.io.File
-import java.io.ByteArrayOutputStream
 
 class Updater(activity: Activity, private val api: Api) {
     private val context = activity.applicationContext
@@ -60,18 +60,7 @@ class Updater(activity: Activity, private val api: Api) {
             check(response.isSuccessful) { if (response.code == 404) "暂无可用的更新清单" else "更新源暂不可用（${response.code}）" }
             val body = response.body ?: error("更新信息为空")
             check(body.contentLength() <= limit) { "更新信息过大" }
-            val bytes = body.byteStream().use { input ->
-                val output = ByteArrayOutputStream()
-                val buffer = ByteArray(4096)
-                while (output.size() <= limit) {
-                    val count = input.read(buffer, 0, minOf(buffer.size, limit + 1 - output.size()))
-                    if (count < 0) break
-                    output.write(buffer, 0, count)
-                }
-                output.toByteArray()
-            }
-            check(bytes.size <= limit) { "更新信息过大" }
-            bytes.toString(Charsets.UTF_8)
+            body.byteStream().use { readBounded(it, limit, "更新信息过大") }.toString(Charsets.UTF_8)
         }
     }
     suspend fun download(manifest: UpdateManifest, progress: (Float) -> Unit): File = withContext(Dispatchers.IO) {

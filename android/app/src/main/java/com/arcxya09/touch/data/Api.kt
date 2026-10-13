@@ -25,7 +25,7 @@ import okio.buffer
 
 class CredentialStorageException(cause: Exception) : Exception("无法保存登录凭据，请检查设备存储空间后重试", cause)
 
-class Api(secure: SecureStore, private val baseUrl: String = BuildConfig.API_BASE,
+class Api(secure: SecureStore, val baseUrl: String = BuildConfig.API_BASE,
           private val credentials: SecureSessionStore = SecureSessionStore(secure)) {
     val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS)
         .pingInterval(25, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).writeTimeout(120, TimeUnit.SECONDS).build()
@@ -92,7 +92,6 @@ class Api(secure: SecureStore, private val baseUrl: String = BuildConfig.API_BAS
         val owner = user?.id
         val transport = if (bounded) jsonClient else client
         fun request() = Request.Builder().url(baseUrl + path).method(method, body).apply {
-            header("X-Touch-Capabilities", "recall-v1")
             if (authenticated) session?.optString("access_token")?.let { header("Authorization", "Bearer $it") }
         }.build()
         val first = request()
