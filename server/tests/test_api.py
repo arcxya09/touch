@@ -198,3 +198,29 @@ def test_admin_creation_reset_and_csrf(client):
                        data={"action": "disable", "csrf": csrf}).status_code == 200
     assert client.get("/api/v1/auth/me", headers=ah).status_code == 401
     assert client.post("/api/v1/auth/login", json={"username": "alice", "password": "password123!"}).status_code == 401
+
+
+def test_reciprocal_request_accepts_pending_request(client):
+    ah, ad = login(client, "alice")
+    bh, bd = login(client, "bob")
+    assert client.post("/api/v1/contacts/requests", headers=ah, json={"user_id": bd["user"]["id"]}).json()["state"] == "pending"
+    # Repeating one's own request does not accept it.
+    assert client.post("/api/v1/contacts/requests", headers=ah, json={"user_id": bd["user"]["id"]}).json()["state"] == "pending"
+    assert client.post("/api/v1/contacts/requests", headers=bh, json={"user_id": ad["user"]["id"]}).json()["state"] == "accepted"
+    contacts = client.get("/api/v1/contacts", headers=ah).json()
+    assert contacts[0]["state"] == "accepted" and contacts[0]["conversation_id"]
+    assert client.get("/api/v1/conversations", headers=bh).json()[0]["can_send"] is True
+
+
+def test_disable_and_enable_refresh_peer_contacts(client):
+    ah, bh, ad, bd, cid = friends(client)
+    cursor = client.get("/api/v1/sync", headers=ah).json()["cursor"]
+    csrf = admin_login(client)
+    assert client.post("/admin/users/" + bd["user"]["id"], data={"action": "disable", "csrf": csrf}).status_code == 200
+    events = client.get(f"/api/v1/sync?cursor={cursor}", headers=ah).json()
+    assert [e["kind"] for e in events["events"]] == ["contacts_changed"]
+    assert client.get("/api/v1/conversations", headers=ah).json()[0]["can_send"] is False
+    assert client.post("/admin/users/" + bd["user"]["id"], data={"action": "enable", "csrf": csrf}).status_code == 200
+    events = client.get(f"/api/v1/sync?cursor={events['cursor']}", headers=ah).json()
+    assert [e["kind"] for e in events["events"]] == ["contacts_changed"]
+    assert client.get("/api/v1/conversations", headers=ah).json()[0]["can_send"] is True

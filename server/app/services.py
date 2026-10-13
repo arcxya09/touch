@@ -5,7 +5,11 @@ from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from .models import Attachment, Contact, Conversation, Message, SyncEvent, User, now
-from .capabilities import RECALL
+
+
+# Recall has been part of the wire protocol since 1.0.13. The capability list and
+# can_recall stay in responses only for clients that still read them (2.0.3/2.0.4).
+RECALL = "recall-v1"
 
 
 def pair(a: str, b: str) -> str:

@@ -15,7 +15,6 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .passwords import replace_password
-from .uploads import require_storage
 from .account_deletion import lock_accounts
 from .profiles import Profile, avatar_response, profile_changed, read_avatar, set_avatar
 from .database import get_db
@@ -242,14 +241,20 @@ def request_contact(body: ContactRequest, request: Request, user: User = Depends
         raise HTTPException(404, "账号不存在")
     key = pair(user.id, peer.id)
     contact = db.get(Contact, key)
-    if contact and (contact.state == "accepted" or (contact.state == "pending" and not user.is_admin)):
+    if contact and contact.state == "accepted":
+        return {"ok": True, "state": contact.state}
+    # A request back to someone who already asked us is an acceptance.
+    reciprocal = contact is not None and contact.state == "pending" and contact.requester == peer.id
+    if contact and contact.state == "pending" and not (user.is_admin or reciprocal):
         return {"ok": True, "state": contact.state}
     if not contact:
         a, b = sorted([user.id, peer.id])
         contact = Contact(pair_key=key, a=a, b=b, requester=user.id)
         db.add(contact)
-    contact.state = "accepted" if user.is_admin else "pending"
-    contact.requester, contact.updated_at = user.id, now()
+    contact.state = "accepted" if user.is_admin or reciprocal else "pending"
+    if not reciprocal:
+        contact.requester = user.id
+    contact.updated_at = now()
     if contact.state == "accepted" and not db.scalar(select(Conversation).where(Conversation.pair_key == key)):
         db.add(Conversation(pair_key=key, a=contact.a, b=contact.b))
     emit(db, [user.id, peer.id], "contacts_changed", {})
@@ -322,7 +327,7 @@ def message_context(conversation_id: UUID, message_id: UUID,
                     after_time: int = Query(default=0, ge=0),
                     user: User = Depends(ready_user), db: Session = Depends(get_db)):
     target = original_message(conversation_id, message_id, after_time, user, db)
-    conversation = conversation_for(db, str(conversation_id), user.id)
+    conversation = db.get(Conversation, target["conversation_id"])
     visible = select(Message).where(Message.conversation_id == conversation.id,
                                     Message.seq > visible_after(conversation, user.id),
                                     Message.created_at > after_time)
@@ -515,7 +520,6 @@ def upload(request: Request, kind: Literal["image", "file"] = Query(), file: Upl
                 size += len(chunk)
                 if size > limit:
                     raise HTTPException(413, "文件超过大小限制")
-                require_storage(len(chunk))
                 checksum.update(chunk)
                 destination.write(chunk)
         if size == 0:
