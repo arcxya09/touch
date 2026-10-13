@@ -3,7 +3,6 @@ package com.arcxya09.touch.data
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
-import com.arcxya09.touch.BuildConfig
 import com.arcxya09.touch.TouchApp
 import com.arcxya09.touch.security.SecureStore
 import kotlinx.coroutines.Dispatchers
@@ -19,6 +18,7 @@ import okio.BufferedSink
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.InputStream
 import java.security.MessageDigest
 import java.util.UUID
 
@@ -133,8 +133,7 @@ class Repository(private val context: Context, private val database: () -> Touch
                 val expired = cache.expiredPending(floor)
                 count = expired.size
                 expired.forEach {
-                    JSONObject(it.body).optString("attachment_id").takeIf(String::isNotBlank)?.let { id -> cleanup.enqueue(id); cache.remove("attachment", id) }
-                    cache.removePending(it.id); changed = true
+                    removePending(it); changed = true
                 }
             }
         } while (count == 100)
@@ -208,42 +207,25 @@ class Repository(private val context: Context, private val database: () -> Touch
         val user = api.json("/api/v1/auth/password", "POST", JSONObject().put("current_password", old).put("new_password", new))
         user.optJSONObject("session")?.let { api.save(it); recheck() } ?: api.updateUser(user)
     }
-    private suspend fun acceptUser(user: JSONObject) {
-        api.updateUser(user)
-    }
     suspend fun updateProfile(name: String, bio: String) = syncLock.withLock {
-        acceptUser(api.json("/api/v1/auth/profile", "PATCH", JSONObject().put("display_name", name.trim()).put("bio", bio.trim())))
+        api.updateUser(api.json("/api/v1/auth/profile", "PATCH", JSONObject().put("display_name", name.trim()).put("bio", bio.trim())))
     }
     suspend fun setReadReceipts(enabled: Boolean) = syncLock.withLock {
-        acceptUser(api.json("/api/v1/auth/preferences", "PATCH", JSONObject().put("read_receipts_enabled", enabled)))
+        api.updateUser(api.json("/api/v1/auth/preferences", "PATCH", JSONObject().put("read_receipts_enabled", enabled)))
     }
-    suspend fun removeAvatar() = syncLock.withLock { acceptUser(api.json("/api/v1/auth/avatar", "DELETE")) }
+    suspend fun removeAvatar() = syncLock.withLock { api.updateUser(api.json("/api/v1/auth/avatar", "DELETE")) }
     suspend fun uploadAvatar(uri: Uri) = syncLock.withLock { withContext(Dispatchers.IO) {
         // Bound memory and never create a plaintext thumbnail or upload staging file.
-        val bytes = context.contentResolver.openInputStream(uri)?.use { readBounded(it, 5 * 1024 * 1024) }
+        val bytes = context.contentResolver.openInputStream(uri)?.use { readBounded(it, 5 * 1024 * 1024, "头像不能超过 5 MiB") }
             ?: error("无法读取图片")
-        require(bytes.size <= 5 * 1024 * 1024) { "头像不能超过 5 MiB" }
         val body = MultipartBody.Builder().setType(MultipartBody.FORM)
             .addFormDataPart("file", "avatar", bytes.toRequestBody("application/octet-stream".toMediaTypeOrNull())).build()
-        api.response("/api/v1/auth/avatar", "POST", body).use { acceptUser(JSONObject(it.body!!.string())) }
+        api.response("/api/v1/auth/avatar", "POST", body).use { api.updateUser(JSONObject(it.body!!.string())) }
     } }
-    private fun readBounded(input: java.io.InputStream, limit: Int): ByteArray {
-        val output = java.io.ByteArrayOutputStream()
-        val buffer = ByteArray(8192)
-        while (true) {
-            val count = input.read(buffer, 0, minOf(buffer.size, limit + 1 - output.size()))
-            if (count < 0) break
-            output.write(buffer, 0, count)
-            require(output.size() <= limit) { "图片超过大小限制" }
-        }
-        return output.toByteArray()
-    }
     suspend fun avatarBytes(person: Person): ByteArray? = withContext(Dispatchers.IO) {
         val version = person.avatarVersion ?: return@withContext null
         api.response("/api/v1/profiles/${person.id}/avatar/$version").use { response ->
-            val bytes = response.body!!.byteStream().use { readBounded(it, 512 * 1024) }
-            require(bytes.size <= 512 * 1024) { "头像过大" }
-            bytes
+            response.body!!.byteStream().use { readBounded(it, 512 * 1024, "头像过大") }
         }
     }
     suspend fun verifyPassword(password: String) { api.json("/api/v1/auth/verify-password", "POST", JSONObject().put("password", password)) }
@@ -424,10 +406,7 @@ class Repository(private val context: Context, private val database: () -> Touch
     private fun deleteLocalConversation(cid: String, through: Long, discardPending: Boolean = false) {
         accessGeneration.incrementAndGet()
         clearMessages(cid, through)
-        cache.pendingItems().filter { discardPending && it.conversationId == cid }.forEach {
-            JSONObject(it.body).optString("attachment_id").takeIf(String::isNotBlank)?.let { id -> cleanup.enqueue(id); cache.remove("attachment", id) }
-            cache.removePending(it.id)
-        }
+        cache.pendingItems().filter { discardPending && it.conversationId == cid }.forEach(::removePending)
         cache.remove("draft", cid)
         cache.remove("conversation", cid)
     }
@@ -437,7 +416,7 @@ class Repository(private val context: Context, private val database: () -> Touch
         purge()
         if (api.user == null || api.user?.mustChange == true) { connection.failure(generation); return@withContext }
         // Web profile edits and receipt preferences also refresh existing sessions.
-        acceptUser(api.json("/api/v1/auth/me"))
+        api.updateUser(api.json("/api/v1/auth/me"))
         val incoming = ArrayDeque<ChatMessage>()
         var cursor = cache.get("meta", "cursor")?.json?.toLongOrNull() ?: 0L
         do {
@@ -481,6 +460,12 @@ class Repository(private val context: Context, private val database: () -> Touch
             }
         }
         purge()
+        // Sends are idempotent by client_id: retry what the network left unconfirmed. Events above
+        // already reconciled sends whose response was lost; explicit rejections stay for the user.
+        cache.pendingItems().filter { JSONObject(it.body).optString("_delivery_state") != PendingDelivery.Failed.name }.forEach {
+            try { whileSending(it.id) { deliverPending(it.id) } }
+            catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e }
+        }
         val eligible = incoming.filter { message ->
             val conversation = cache.get("conversation", message.conversationId)?.json?.let(::JSONObject)
             message.kind != "recalled" && cache.get("message", message.id)?.let { JSONObject(it.json).optString("kind") != "recalled" } == true && conversation != null &&
@@ -575,7 +560,16 @@ class Repository(private val context: Context, private val database: () -> Touch
         socketEvent?.invoke()
         com.arcxya09.touch.notifications.AlertService.wake()
     }
-    suspend fun discard(id: String) = withContext(Dispatchers.IO) { cache.removePending(id) }
+    suspend fun discard(id: String) = withContext(Dispatchers.IO) {
+        db.runInTransaction {
+            cache.pendingItems().firstOrNull { it.id == id }?.let { removePending(it) }
+        }
+        cleanup.drain()
+    }
+    private fun removePending(item: TouchDatabase.Outbox) {
+        JSONObject(item.body).optString("attachment_id").takeIf(String::isNotBlank)?.let { cleanup.enqueue(it); cache.remove("attachment", it) }
+        cache.removePending(item.id)
+    }
     suspend fun read(cid: String, seq: Long) { api.json("/api/v1/conversations/$cid/read", "POST", JSONObject().put("seq", seq)) }
     suspend fun deleteConversation(cid: String) = syncLock.withLock { withContext(Dispatchers.IO) {
         val result = api.json("/api/v1/conversations/$cid", "DELETE")
@@ -621,7 +615,8 @@ class Repository(private val context: Context, private val database: () -> Touch
         context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use {
             if (it.moveToFirst()) {
                 name = it.getString(0) ?: name
-                if (!it.isNull(1)) size = it.getLong(1)
+                // Some providers report 0 for an unknown size; stream those without a declared length.
+                if (!it.isNull(1)) size = it.getLong(1).takeIf { value -> value > 0 } ?: -1L
             }
         }
         val limit = if (kind == "image") 20L * 1024 * 1024 else 100L * 1024 * 1024
@@ -668,12 +663,7 @@ class Repository(private val context: Context, private val database: () -> Touch
         val target = attachment(message)
         target.checkAccess()
         if (target.encryptedFile.exists()) {
-            val valid = runCatching { target.input().use { input ->
-                val digest = MessageDigest.getInstance("SHA-256")
-                val buffer = ByteArray(65536); var size = 0L
-                while (true) { val n = input.read(buffer); if (n < 0) break; size += n; digest.update(buffer, 0, n) }
-                size == item.size && digest.digest().joinToString("") { "%02x".format(it) } == item.sha256
-            } }.getOrDefault(false)
+            val valid = runCatching { target.input().use(::digestOf) == (item.size to item.sha256) }.getOrDefault(false)
             if (valid) return@withContext target
             check(target.encryptedFile.delete())
         }
@@ -698,7 +688,7 @@ class Repository(private val context: Context, private val database: () -> Touch
                     }
                 } }
             }
-            require(count == item.size && digest.digest().joinToString("") { "%02x".format(it) } == item.sha256) { "文件校验失败" }
+            require(count == item.size && digest.hex() == item.sha256) { "文件校验失败" }
             target.checkAccess()
             check(partial.renameTo(target.encryptedFile)) { "无法保存文件" }
             target
@@ -712,7 +702,7 @@ class Repository(private val context: Context, private val database: () -> Touch
         socketEvent = onEvent
         socketToken = access
         connection.opening()
-        val url = BuildConfig.API_BASE.replaceFirst("https://", "wss://").replaceFirst("http://", "ws://") + "/ws"
+        val url = api.baseUrl.replaceFirst("https://", "wss://").replaceFirst("http://", "ws://") + "/ws"
         socket = api.socketClient.newWebSocket(Request.Builder().url(url).header("Authorization", "Bearer $access").build(), object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) { synchronized(this@Repository) {
                 if (socket === webSocket) { connection.opened(); socketEvent?.invoke() }
@@ -748,11 +738,28 @@ class Repository(private val context: Context, private val database: () -> Touch
     fun stop() { disconnect(); api.closeConnections() }
 }
 
-fun sha256(file: File): String {
+fun MessageDigest.hex(): String = digest().joinToString("") { "%02x".format(it) }
+
+/** Plaintext length and SHA-256 hex of a stream, read to its end. */
+fun digestOf(input: InputStream): Pair<Long, String> {
     val digest = MessageDigest.getInstance("SHA-256")
-    file.inputStream().use { input ->
-        val buffer = ByteArray(65536)
-        while (true) { val n = input.read(buffer); if (n < 0) break; digest.update(buffer, 0, n) }
+    val buffer = ByteArray(65536)
+    var size = 0L
+    while (true) { val n = input.read(buffer); if (n < 0) break; size += n; digest.update(buffer, 0, n) }
+    return size to digest.hex()
+}
+
+fun sha256(file: File): String = file.inputStream().use { digestOf(it).second }
+
+/** Reads at most [limit] bytes, failing with [message] if the stream is longer. */
+fun readBounded(input: InputStream, limit: Int, message: String): ByteArray {
+    val output = java.io.ByteArrayOutputStream()
+    val buffer = ByteArray(8192)
+    while (true) {
+        val count = input.read(buffer, 0, minOf(buffer.size, limit + 1 - output.size()))
+        if (count < 0) break
+        output.write(buffer, 0, count)
+        require(output.size() <= limit) { message }
     }
-    return digest.digest().joinToString("") { "%02x".format(it) }
+    return output.toByteArray()
 }

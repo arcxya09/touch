@@ -30,11 +30,11 @@ class ReplyStorageTest {
         }
         EncryptedDatabase.open(app, vault, name).let { db ->
             try {
-                assertEquals(json, db.cache().page("c", Long.MAX_VALUE, 0).single().json)
+                assertEquals(json, db.cache().visiblePage("c", Long.MAX_VALUE, 0, true).single().json)
                 assertEquals("p", db.cache().pendingItems().single().id)
                 assertEquals(124L, db.cache().get("draft", "c")!!.createdAt)
                 assertEquals("c", db.cache().get("draft", "c")!!.conversationId)
-                assertTrue(db.cache().page("c", Long.MAX_VALUE, 123).isEmpty())
+                assertTrue(db.cache().visiblePage("c", Long.MAX_VALUE, 123, true).isEmpty())
             } finally { db.close() }
         }
         assertFalse(app.getDatabasePath(name).readBytes().toString(Charsets.ISO_8859_1).contains(secret))
@@ -53,7 +53,7 @@ class ReplyStorageTest {
                             .put("seq", i).put("created_at", i).put("text", "private-$i").toString()))
                 }
                 val begin = android.os.SystemClock.elapsedRealtime()
-                val page = db.cache().page("a", Long.MAX_VALUE, 0)
+                val page = db.cache().visiblePage("a", Long.MAX_VALUE, 0, true)
                 assertEquals(50, page.size)
                 assertEquals(count.toLong(), page.first().seq)
                 assertTrue(page.all { it.conversationId == "a" })
@@ -65,8 +65,8 @@ class ReplyStorageTest {
                 assertFalse(plans.any { it.startsWith("SCAN items") })
             }
             assertEquals(4, db.cache().expired("message", 4).size)
-            assertEquals(50, db.cache().window("a", 20000, 20100, 0).size)
-            assertTrue(db.cache().page("a", 100, 100).isEmpty())
+            assertEquals(50, db.cache().visibleWindow("a", 20000, 20100, 0, true).size)
+            assertTrue(db.cache().visiblePage("a", 100, 100, true).isEmpty())
             val start = android.os.SystemClock.elapsedRealtime()
             var removed = 0
             db.runInTransaction {
@@ -77,7 +77,7 @@ class ReplyStorageTest {
                 } while (expired.size == 500)
             }
             assertEquals(50000, removed)
-            assertTrue(db.cache().page("a", Long.MAX_VALUE, 0).isEmpty())
+            assertTrue(db.cache().visiblePage("a", Long.MAX_VALUE, 0, true).isEmpty())
             android.util.Log.i("TouchTest", "expired=50000 cleanupMs=${android.os.SystemClock.elapsedRealtime()-start}")
         } finally { db.close(); app.deleteDatabase(name) }
     }

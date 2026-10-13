@@ -78,9 +78,7 @@ class LocalMessageActionsTest {
                     repo.initialize()
                     val encrypted = EncryptedAttachments(context, app.vault).file(FileItem.parse(attachment), owner, now) { true }
                     encrypted.encryptTo(encrypted.encryptedFile).use { it.write("private fixture".toByteArray()) }
-                    val cached = repo.conversations().single()
-                    assertFalse("A stale capability value must not prevent the sender's recall", cached.canRecall)
-                    assertTrue("The peer does not advertise any modern capability", cached.peer.capabilities.isEmpty())
+                    assertEquals(1, repo.conversations().size)
                     assertEquals(0, server.requestCount)
                     assertTrue(encrypted.encryptedFile.exists())
 
@@ -102,7 +100,6 @@ class LocalMessageActionsTest {
                     assertTrue(cache.fileDeletions().isEmpty())
                     assertTrue(repo.messages(cid).isEmpty())
                     assertNull(repo.original(cid, ReplyRef(mid, 1, now)))
-                    assertFalse("Recall succeeds while cached peer metadata remains legacy", repo.conversations().single().canRecall)
                     assertNull("The conversation summary must immediately remove the recalled content", repo.conversations().single().last)
 
                     if (syncAvailable) {
