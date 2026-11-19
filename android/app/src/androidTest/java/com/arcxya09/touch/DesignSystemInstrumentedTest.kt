@@ -88,6 +88,29 @@ class DesignSystemInstrumentedTest {
         compose.onNodeWithContentDescription("本机加密草稿开关").assertIsOff().performClick().assertIsOn()
         compose.runOnIdle { assertTrue(checked) }
     }
+    @Test fun sensitiveWordEditorAddsAndDeletesIndividualEntries() {
+        var words by mutableStateOf(listOf("PIN"))
+        var open by mutableStateOf(true)
+        compose.setContent {
+            TouchTheme {
+                if (open) SensitiveWordsDialog(words, false, { open = false }) { updated, onSaved ->
+                    words = updated
+                    onSaved()
+                }
+            }
+        }
+        val input = compose.onNode(hasSetTextAction())
+        input.performTextInput("pin")
+        compose.onNodeWithText("该词已添加").assertIsDisplayed()
+        compose.onNodeWithText("添加").assertIsNotEnabled()
+        input.performTextReplacement("备份码")
+        compose.onNodeWithText("添加").performClick()
+        compose.onNodeWithContentDescription("删除敏感词 备份码").assertIsDisplayed()
+        compose.onNodeWithContentDescription("删除敏感词 PIN").performClick()
+        compose.onNodeWithContentDescription("删除敏感词 PIN").assertDoesNotExist()
+        compose.onNodeWithText("完成").performClick()
+        compose.runOnIdle { assertFalse(open); assertEquals(listOf("备份码"), words) }
+    }
     private fun saveScreenshot(name: String) {
         val folder = File(InstrumentationRegistry.getInstrumentation().targetContext.filesDir, "design-snapshots").apply { mkdirs() }
         File(folder, "$name.png").outputStream().use { compose.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it) }

@@ -1,8 +1,10 @@
 package com.arcxya09.touch.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -36,6 +38,26 @@ import com.arcxya09.touch.data.PendingDelivery
             }
         }
     }
+}
+
+@Composable internal fun SensitiveWordWarning(matches: List<String>, cancel: () -> Unit, send: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    AlertDialog(onDismissRequest = cancel, containerColor = colors.errorContainer,
+        icon = { Icon(Icons.Outlined.Warning, contentDescription = null) }, iconContentColor = colors.onErrorContainer,
+        title = { Text("命中敏感词") }, titleContentColor = colors.onErrorContainer,
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(matches.joinToString("\n") { "「$it」" }, style = MaterialTheme.typography.titleMedium)
+                Text("仍要发送这条消息吗？")
+            }
+        }, textContentColor = colors.onErrorContainer,
+        confirmButton = {
+            Button(onClick = send, colors = ButtonDefaults.buttonColors(containerColor = colors.error, contentColor = colors.onError)) {
+                Text("仍然发送")
+            }
+        }, dismissButton = {
+            TextButton(onClick = cancel, colors = ButtonDefaults.textButtonColors(contentColor = colors.onErrorContainer)) { Text("取消") }
+        })
 }
 
 @Composable internal fun JumpToLatest(atBottom: Boolean, hasIncoming: Boolean, loading: Boolean,

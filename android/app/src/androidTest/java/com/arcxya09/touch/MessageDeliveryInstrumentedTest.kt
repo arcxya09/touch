@@ -237,7 +237,7 @@ class MessageDeliveryInstrumentedTest {
                 withContext(Dispatchers.Main) { vm.resume() }
                 awaitState { vm.mayShowChat && vm.user?.isAdmin == true }
                 val saved = CompletableDeferred<Unit>()
-                withContext(Dispatchers.Main) { vm.saveSensitiveWords("  测试词 \n\nPIN\npin\n无命中") { saved.complete(Unit) } }
+                withContext(Dispatchers.Main) { vm.saveSensitiveWords(listOf("  测试词 ", "", "PIN", "pin", "无命中")) { saved.complete(Unit) } }
                 withTimeout(5000) { saved.await() }
                 val message = "发送测试词和 pin"
                 withContext(Dispatchers.Main) { vm.openConversation("A"); vm.editDraft(message); vm.send(message) {} }

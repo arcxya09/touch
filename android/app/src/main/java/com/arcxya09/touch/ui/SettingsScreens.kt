@@ -1,7 +1,10 @@
 package com.arcxya09.touch.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -10,6 +13,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.arcxya09.touch.AppViewModel
@@ -64,7 +68,7 @@ import com.arcxya09.touch.Screen
 @Composable internal fun PrivacySecurityScreen(vm: AppViewModel, activity: MainActivity) {
     var passwordDialog by remember { mutableStateOf<String?>(null) }
     var setup by remember { mutableStateOf(false) }
-    var sensitiveWords by remember(vm.user?.id) { mutableStateOf<String?>(null) }
+    var sensitiveWords by remember(vm.user?.id) { mutableStateOf<List<String>?>(null) }
     val working = vm.isWorking(Operation.Settings) || vm.isWorking(Operation.Session)
     TouchPage("隐私与安全", vm::back, working) {
         SectionLabel("隐私模式")
@@ -101,16 +105,49 @@ import com.arcxya09.touch.Screen
     }
     if (setup) PatternSetup({ setup = false }) { pattern -> setup = false; vm.setPrivacy(pattern) }
     if (vm.user?.isAdmin == true) sensitiveWords?.let { words ->
-        AlertDialog(onDismissRequest = { if (!working) sensitiveWords = null }, title = { Text("敏感词拦截") },
-            text = {
-                OutlinedTextField(words, { sensitiveWords = it }, Modifier.fillMaxWidth(), enabled = !working,
-                    label = { Text("敏感词（每行一项）") }, minLines = 3, maxLines = 6)
-            },
-            confirmButton = {
-                TextButton(onClick = { vm.saveSensitiveWords(words) { sensitiveWords = null } }, enabled = !working) { Text("保存") }
-            },
-            dismissButton = { TextButton(onClick = { sensitiveWords = null }, enabled = !working) { Text("取消") } })
+        SensitiveWordsDialog(words, working, { sensitiveWords = null }) { updated, onSaved ->
+            vm.saveSensitiveWords(updated) {
+                sensitiveWords = updated
+                onSaved()
+            }
+        }
     }
+}
+
+@Composable internal fun SensitiveWordsDialog(words: List<String>, working: Boolean, onDismiss: () -> Unit,
+    save: (List<String>, () -> Unit) -> Unit) {
+    var input by remember { mutableStateOf("") }
+    val word = input.trim()
+    val duplicate = words.any { it.lowercase() == word.lowercase() }
+    val multiline = '\n' in word || '\r' in word
+    val canAdd = !working && word.isNotEmpty() && !duplicate && !multiline
+    val add: () -> Unit = { if (canAdd) save(words + word) { input = "" } }
+    AlertDialog(onDismissRequest = { if (!working) onDismiss() }, title = { Text("敏感词拦截") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(input, { input = it }, Modifier.weight(1f), enabled = !working, singleLine = true,
+                        label = { Text("敏感词") }, isError = duplicate || multiline,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { add() }),
+                        supportingText = if (duplicate || multiline) {
+                            { Text(if (duplicate) "该词已添加" else "每次添加一个敏感词") }
+                        } else null)
+                    TextButton(onClick = add, enabled = canAdd, modifier = Modifier.padding(top = 6.dp)) { Text("添加") }
+                }
+                if (words.isEmpty()) Text("尚未添加敏感词")
+                else LazyColumn(Modifier.heightIn(max = 240.dp)) {
+                    items(words, key = { it }) { item ->
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(item, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                            IconButton(onClick = { save(words - item) {} }, enabled = !working) {
+                                Icon(Icons.Outlined.DeleteOutline, "删除敏感词 $item")
+                            }
+                        }
+                        HorizontalDivider()
+                    }
+                }
+            }
+        }, confirmButton = { TextButton(onClick = onDismiss, enabled = !working) { Text("完成") } })
 }
 
 @Composable internal fun LocalDataScreen(vm: AppViewModel) {

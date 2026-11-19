@@ -644,17 +644,18 @@ class AppViewModel internal constructor(application: Application, val repository
     private fun adminAccount() = repository.api.user?.takeIf { it.isAdmin && it.id == user?.id }?.id
     private fun sensitiveWordsKey(owner: String) = "sensitive_words_$owner"
 
-    internal fun loadSensitiveWords(onLoaded: (String) -> Unit) = action(Operation.Settings) {
+    internal fun loadSensitiveWords(onLoaded: (List<String>) -> Unit) = action(Operation.Settings) {
         val owner = adminAccount() ?: return@action
         val generation = navigationGeneration
-        val value = app.secureStore.read(sensitiveWordsKey(owner)).orEmpty()
-        if (owner == adminAccount() && generation == navigationGeneration) onLoaded(value)
+        val words = app.secureStore.read(sensitiveWordsKey(owner)).orEmpty().lineSequence().filter(String::isNotEmpty).toList()
+        if (owner == adminAccount() && generation == navigationGeneration) onLoaded(words)
     }
 
-    internal fun saveSensitiveWords(value: String, onSaved: () -> Unit) = action(Operation.Settings) {
+    internal fun saveSensitiveWords(entries: List<String>, onSaved: () -> Unit) = action(Operation.Settings) {
         val owner = adminAccount() ?: return@action
         val generation = navigationGeneration
-        val words = value.lineSequence().map(String::trim).filter(String::isNotEmpty).distinctBy { it.lowercase() }
+        val words = entries.map(String::trim).filter(String::isNotEmpty).distinctBy { it.lowercase() }
+        require(words.none { '\n' in it || '\r' in it }) { "每条敏感词仅可输入一行" }
         app.secureStore.write(sensitiveWordsKey(owner), words.joinToString("\n").ifEmpty { null })
         if (owner == adminAccount() && generation == navigationGeneration) onSaved()
     }

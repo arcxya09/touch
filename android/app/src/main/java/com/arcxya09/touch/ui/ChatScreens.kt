@@ -141,9 +141,7 @@ import java.time.format.DateTimeFormatter
     if (clear) DeleteConversationConfirm({ clear = false }) { vm.conversationId?.let(vm::deleteConversation); clear = false }
     val matches = vm.sensitiveWordMatches
     if (vm.user?.isAdmin == true && matches.isNotEmpty()) {
-        val words = matches.joinToString("\n") { "「$it」" }
-        Confirm("命中敏感词", "$words\n\n仍要发送这条消息吗？", { vm.respondToSensitiveWordWarning(false) },
-            "仍然发送") { vm.respondToSensitiveWordWarning(true) }
+        SensitiveWordWarning(matches, { vm.respondToSensitiveWordWarning(false) }) { vm.respondToSensitiveWordWarning(true) }
     }
 }
 
