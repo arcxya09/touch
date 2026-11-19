@@ -121,6 +121,7 @@ class AppViewModel internal constructor(application: Application, val repository
     fun navigate(target: Screen) {
         if (target == destination) return
         cancelExternalSelection()
+        respondToSensitiveWordWarning(false)
         if (target != Screen.Chat) pendingSelection = null
         if (target != Screen.Profile) pendingAvatar = null
         navigationGeneration++
@@ -375,6 +376,7 @@ class AppViewModel internal constructor(application: Application, val repository
                         if (repository.purgeIfDue() || (user != null && repository.api.user == null)) reloadLocal()
                         if (retentionEnabled && draftEditedAt > 0 && draftEditedAt <= expiryTick - retentionSeconds) {
                             conversationId?.let { draftJobs.remove(it)?.cancel(); draftsInMemory.remove(it) }
+                            respondToSensitiveWordWarning(false)
                             draftText = ""; quote = null; draftEditedAt = 0
                         }
                         if (foreground && mayShowChat && !isWorking(Operation.Settings) && pendingNotificationEnable) {
@@ -409,6 +411,7 @@ class AppViewModel internal constructor(application: Application, val repository
     }
     private fun suspendForeground() {
         viewModelScope.launch(NonCancellable + Dispatchers.IO) { runCatching { repository.checkpointRetention() } }
+        respondToSensitiveWordWarning(false)
         rememberDraft()
         conversationRequests.invalidate()
         foreground = false
@@ -587,6 +590,7 @@ class AppViewModel internal constructor(application: Application, val repository
     }
     fun openConversation(id: String) {
         if (!mayShowChat || user == null || isWorking(Operation.Session)) return
+        respondToSensitiveWordWarning(false)
         cancelExternalSelection(); pendingSelection = null
         rememberDraft()
         conversationRequests.invalidate()
@@ -627,11 +631,57 @@ class AppViewModel internal constructor(application: Application, val repository
         pageBefore = before ?: Long.MAX_VALUE; windowFirst = null; windowLast = null; browsingHistory = true
         reloadLocal(); scrollRequest++
     }
+    private data class SensitiveWordPrompt(val matches: List<String>, val answer: CompletableDeferred<Boolean>)
+    private var sensitiveWordPrompt by mutableStateOf<SensitiveWordPrompt?>(null)
+    internal val sensitiveWordMatches get() = sensitiveWordPrompt?.matches.orEmpty()
+
+    internal fun respondToSensitiveWordWarning(send: Boolean) {
+        val prompt = sensitiveWordPrompt ?: return
+        sensitiveWordPrompt = null
+        prompt.answer.complete(send)
+    }
+
+    private fun adminAccount() = repository.api.user?.takeIf { it.isAdmin && it.id == user?.id }?.id
+    private fun sensitiveWordsKey(owner: String) = "sensitive_words_$owner"
+
+    internal fun loadSensitiveWords(onLoaded: (String) -> Unit) = action(Operation.Settings) {
+        val owner = adminAccount() ?: return@action
+        val generation = navigationGeneration
+        val value = app.secureStore.read(sensitiveWordsKey(owner)).orEmpty()
+        if (owner == adminAccount() && generation == navigationGeneration) onLoaded(value)
+    }
+
+    internal fun saveSensitiveWords(value: String, onSaved: () -> Unit) = action(Operation.Settings) {
+        val owner = adminAccount() ?: return@action
+        val generation = navigationGeneration
+        val words = value.lineSequence().map(String::trim).filter(String::isNotEmpty).distinctBy { it.lowercase() }
+        app.secureStore.write(sensitiveWordsKey(owner), words.joinToString("\n").ifEmpty { null })
+        if (owner == adminAccount() && generation == navigationGeneration) onSaved()
+    }
+
     fun send(text: String, clear: () -> Unit) = action(Operation.Send) {
         val ticket = conversationTicket()
         val id = conversationId ?: return@action
         val reply = quote
+        val admin = adminAccount()
+        if (admin != null) {
+            val draft = draftText
+            val matches = app.secureStore.read(sensitiveWordsKey(admin)).orEmpty().lineSequence()
+                .filter { it.isNotEmpty() && text.contains(it, ignoreCase = true) }.toList()
+            if (!accepts(ticket) || admin != adminAccount() || draftText != draft || quote != reply) return@action
+            if (matches.isNotEmpty()) {
+                val prompt = SensitiveWordPrompt(matches, CompletableDeferred())
+                sensitiveWordPrompt = prompt
+                try {
+                    if (!prompt.answer.await() || !accepts(ticket) || admin != adminAccount() ||
+                        draftText != draft || quote != reply) return@action
+                } finally {
+                    if (sensitiveWordPrompt === prompt) sensitiveWordPrompt = null
+                }
+            }
+        }
         draftJobs.remove(id)?.cancelAndJoin()
+        if (admin != null && (!accepts(ticket) || admin != adminAccount())) return@action
         try { repository.send(id, text, reply = reply) {
             val cleared = queuedDraft(ticket, text, reply)
             withContext(Dispatchers.Main.immediate) { if (cleared && accepts(ticket) && draftText.isEmpty() && quote == null) clear() }

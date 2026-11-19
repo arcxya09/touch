@@ -208,6 +208,64 @@ class MessageDeliveryInstrumentedTest {
         }
     }
 
+    @Test fun sensitiveWordWarningWaitsForConfirmationBeforeQueueing() = runBlocking {
+        fixture(isAdmin = true) { f ->
+            val store = ViewModelStore()
+            val posts = AtomicInteger()
+            f.server.dispatcher = f.dispatch { request ->
+                when {
+                    request.method == "POST" && request.path == "/api/v1/conversations/A/messages" -> {
+                        posts.incrementAndGet()
+                        MockResponse().setBody(f.ack(request).toString())
+                    }
+                    request.path == "/api/v1/auth/me" -> MockResponse().setBody(f.user.toString())
+                    request.path?.startsWith("/api/v1/sync?") == true ->
+                        MockResponse().setBody("""{"events":[],"cursor":0,"has_more":false}""")
+                    request.path?.startsWith("/api/v1/conversations?") == true || request.path == "/api/v1/contacts" ->
+                        MockResponse().setBody("[]")
+                    else -> MockResponse().setResponseCode(503)
+                }
+            }
+            val reader = object : ConversationReader {
+                override suspend fun draft(id: String) = f.repo.draft(id)
+                override suspend fun messages(id: String) = f.repo.messages(id)
+                override suspend fun history(id: String, before: Long?) = false
+            }
+            try {
+                val vm = withContext(Dispatchers.Main) { AppViewModel(f.app, f.repo, reader).also { store.put("delivery", it) } }
+                awaitState { vm.initialized && !vm.storageError }
+                withContext(Dispatchers.Main) { vm.resume() }
+                awaitState { vm.mayShowChat && vm.user?.isAdmin == true }
+                val saved = CompletableDeferred<Unit>()
+                withContext(Dispatchers.Main) { vm.saveSensitiveWords("  测试词 \n\nPIN\npin\n无命中") { saved.complete(Unit) } }
+                withTimeout(5000) { saved.await() }
+                val message = "发送测试词和 pin"
+                withContext(Dispatchers.Main) { vm.openConversation("A"); vm.editDraft(message); vm.send(message) {} }
+                awaitState { vm.sensitiveWordMatches.isNotEmpty() }
+                withContext(Dispatchers.Main) {
+                    assertEquals(listOf("测试词", "PIN"), vm.sensitiveWordMatches)
+                    vm.respondToSensitiveWordWarning(false)
+                }
+                awaitState { !vm.isWorking(Operation.Send) }
+                assertEquals(0, posts.get())
+                assertTrue(f.repo.messages("A").isEmpty())
+                withContext(Dispatchers.Main) {
+                    assertEquals(message, vm.draftText)
+                    vm.send(vm.draftText) {}
+                }
+                awaitState { vm.sensitiveWordMatches.isNotEmpty() }
+                withContext(Dispatchers.Main) { vm.respondToSensitiveWordWarning(true) }
+                awaitState { vm.operationState(Operation.Send).status == OperationStatus.Succeeded }
+                assertEquals(1, posts.get())
+                assertEquals(message, f.repo.messages("A").single().text)
+                withContext(Dispatchers.Main) { assertEquals("", vm.draftText) }
+            } finally {
+                withContext(Dispatchers.Main) { store.clear() }
+                f.secure.write("sensitive_words_${f.user.getString("id")}", null)
+            }
+        }
+    }
+
     @Test fun tokenRefreshStorageFailureIsNotHiddenAsNetworkUncertainty() = runBlocking {
         fixture { f ->
             val writes = AtomicInteger()
@@ -253,7 +311,7 @@ class MessageDeliveryInstrumentedTest {
         }
     }
 
-    private suspend fun fixture(mustChangePassword: Boolean = false, block: suspend (Fixture) -> Unit) {
+    private suspend fun fixture(mustChangePassword: Boolean = false, isAdmin: Boolean = false, block: suspend (Fixture) -> Unit) {
         val app = ApplicationProvider.getApplicationContext<TouchApp>()
         val name = "delivery-${UUID.randomUUID()}.db"
         val folder = File(app.cacheDir, name).apply { mkdirs() }
@@ -267,6 +325,7 @@ class MessageDeliveryInstrumentedTest {
             server.start()
             val user = JSONObject().put("id", UUID.randomUUID().toString()).put("username", "delivery-local")
                 .put("display_name", "消息发送测试").put("must_change_password", mustChangePassword)
+                .put("is_admin", isAdmin)
             val repo = Repository(context, { db }, secure, Api(secure, server.url("/").toString().trimEnd('/')))
             try {
                 withContext(Dispatchers.IO) {

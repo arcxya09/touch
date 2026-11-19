@@ -64,6 +64,7 @@ import com.arcxya09.touch.Screen
 @Composable internal fun PrivacySecurityScreen(vm: AppViewModel, activity: MainActivity) {
     var passwordDialog by remember { mutableStateOf<String?>(null) }
     var setup by remember { mutableStateOf(false) }
+    var sensitiveWords by remember(vm.user?.id) { mutableStateOf<String?>(null) }
     val working = vm.isWorking(Operation.Settings) || vm.isWorking(Operation.Session)
     TouchPage("隐私与安全", vm::back, working) {
         SectionLabel("隐私模式")
@@ -81,8 +82,11 @@ import com.arcxya09.touch.Screen
         SupportingNote(if (activity.hasMotionSensor()) "仅在前台识别。退出前立即遮盖内容；后台提醒保持原设置，未发送内容可能丢失。" else "此设备没有可用的加速度传感器。")
         if (vm.user?.isAdmin == true) {
             HorizontalDivider()
-            SectionLabel("消息状态")
+            SectionLabel("消息")
             ToggleSetting("显示已读标识", "仅管理员可用。开启后，已发送消息旁的灰色小点表示对方已读；没有小点表示未读。", vm.user?.readReceipts == true, !vm.isWorking(Operation.Profile), vm::setReadReceipts)
+            OutlinedButton(onClick = { vm.loadSensitiveWords { sensitiveWords = it } }, enabled = !working) {
+                Text("敏感词拦截")
+            }
         }
     }
     passwordDialog?.let { action ->
@@ -96,6 +100,17 @@ import com.arcxya09.touch.Screen
             dismissButton = { TextButton(onClick = { passwordDialog = null }) { Text("取消") } })
     }
     if (setup) PatternSetup({ setup = false }) { pattern -> setup = false; vm.setPrivacy(pattern) }
+    if (vm.user?.isAdmin == true) sensitiveWords?.let { words ->
+        AlertDialog(onDismissRequest = { if (!working) sensitiveWords = null }, title = { Text("敏感词拦截") },
+            text = {
+                OutlinedTextField(words, { sensitiveWords = it }, Modifier.fillMaxWidth(), enabled = !working,
+                    label = { Text("敏感词（每行一项）") }, minLines = 3, maxLines = 6)
+            },
+            confirmButton = {
+                TextButton(onClick = { vm.saveSensitiveWords(words) { sensitiveWords = null } }, enabled = !working) { Text("保存") }
+            },
+            dismissButton = { TextButton(onClick = { sensitiveWords = null }, enabled = !working) { Text("取消") } })
+    }
 }
 
 @Composable internal fun LocalDataScreen(vm: AppViewModel) {
